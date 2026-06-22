@@ -37,10 +37,10 @@ jobs:
             build: npm run build:tauri
           - platform: windows
             os: windows-latest
-            build: npm run build:win
+            build: npm run build:exe
           - platform: linux
             os: ubuntu-22.04
-            build: npm run tauri -- build --ci --bundles deb,appimage
+            build: npm run tauri -- build --ci --bundles deb
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux dependencies
