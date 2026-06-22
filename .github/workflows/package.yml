@@ -1,0 +1,139 @@
+name: Package release artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Source archive
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create source archive
+        run: |
+          mkdir -p release
+          git archive --format=zip --prefix="gotbot-${GITHUB_REF_NAME:-manual}/" -o "release/gotbot-source-${GITHUB_REF_NAME:-manual}-${GITHUB_SHA::7}.zip" HEAD
+          sha256sum release/* > release/CHECKSUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gotbot-source
+          path: release/*
+
+  desktop:
+    name: Desktop ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-14
+            build: npm run build:tauri
+          - platform: windows
+            os: windows-latest
+            build: npm run build:win
+          - platform: linux
+            os: ubuntu-22.04
+            build: npm run tauri -- build --ci --bundles deb,appimage
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build package
+        run: ${{ matrix.build }}
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p release
+          case "${{ matrix.platform }}" in
+            macos)
+              find src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -exec cp {} release/ \; 2>/dev/null || true
+              if [ -d "src-tauri/target/release/bundle/macos/道听徒说.app" ]; then
+                ditto -c -k --keepParent "src-tauri/target/release/bundle/macos/道听徒说.app" "release/gotbot-macos.app.zip"
+              fi
+              ;;
+            windows)
+              find src-tauri/target/release/bundle/nsis -maxdepth 1 -type f -name '*.exe' -exec cp {} release/ \; 2>/dev/null || true
+              find src-tauri/target/release/bundle/msi -maxdepth 1 -type f -name '*.msi' -exec cp {} release/ \; 2>/dev/null || true
+              ;;
+            linux)
+              find src-tauri/target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -exec cp {} release/ \; 2>/dev/null || true
+              find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -exec cp {} release/ \; 2>/dev/null || true
+              ;;
+          esac
+          test -n "$(find release -mindepth 1 -maxdepth 1 -print -quit)"
+          if command -v sha256sum >/dev/null 2>&1; then sha256sum release/* > release/CHECKSUMS.txt; else shasum -a 256 release/* > release/CHECKSUMS.txt; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gotbot-${{ matrix.platform }}
+          path: release/*
+
+  android:
+    name: Android APK/AAB
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Android SDK and Rust targets
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973"
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            i686-linux-android \
+            x86_64-linux-android
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Initialize Android project
+        run: npm run tauri -- android init --ci --skip-targets-install
+      - name: Build Android package
+        run: npm run tauri -- android build --ci --apk --aab --split-per-abi
+      - name: Collect Android artifacts
+        run: |
+          mkdir -p release
+          find src-tauri/gen/android -type f \( -name '*.apk' -o -name '*.aab' \) -exec cp {} release/ \;
+          sha256sum release/* > release/CHECKSUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gotbot-android
+          path: release/*
