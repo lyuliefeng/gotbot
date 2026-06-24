@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { Download, FolderOpen, LoaderCircle, Plus, RotateCcw, Save, Star, TestTube2, Trash2, Upload } from 'lucide-vue-next'
 import { exportFormatOptions, stylePresets } from '@/data/catalog'
 import { useAppStore } from '@/stores/app'
-import { pickDirectory } from '@/services/tauri'
+import { pickDirectory } from '@/services/desktop'
 import type { ModelCatalogItem, ModelProfile, PromptItem } from '@/types/domain'
 import { createId } from '@/domain/ids'
 

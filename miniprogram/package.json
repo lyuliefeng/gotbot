@@ -1,0 +1,28 @@
+{
+  "name": "gotbot-miniprogram",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify:wechat": "node wechat/scripts/verify-wechat-project.cjs",
+    "smoke:cloud": "node wechat/scripts/smoke-cloudfunctions.cjs",
+    "dev:h5": "vite --config vite.config.ts",
+    "build:h5": "vue-tsc --noEmit && vite build --config vite.config.ts",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pinia": "^2.3.1",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.6",
+    "happy-dom": "^15.11.7",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8",
+    "vue-tsc": "^2.1.10"
+  }
+}

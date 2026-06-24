@@ -1,0 +1,19 @@
+{
+  "appid": "wx8fb9d66bb0076bc3",
+  "projectname": "gotbot-miniprogram",
+  "miniprogramRoot": "./",
+  "cloudfunctionRoot": "../cloudfunctions/",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "compileHotReLoad": true,
+    "minifyWXML": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "latest",
+  "condition": {},
+  "simulatorPluginLibVersion": {}
+}

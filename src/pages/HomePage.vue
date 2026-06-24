@@ -6,7 +6,7 @@ import { getExportFormatOptions, modeLabels, toolGroups } from '@/data/catalog'
 import type { ToolEntry } from '@/data/catalog'
 import { resolveToolIcon } from '@/domain/icons'
 import { useAppStore } from '@/stores/app'
-import { pickDirectory } from '@/services/tauri'
+import { pickDirectory } from '@/services/desktop'
 import type { ExportFormat, GeneratedAsset, GenerationMode, GenerationTask, ModelProfile } from '@/types/domain'
 
 const router = useRouter()

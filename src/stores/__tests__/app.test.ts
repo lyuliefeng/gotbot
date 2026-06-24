@@ -1,15 +1,15 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '../app'
-import { invokeOptional, isTauriRuntime } from '@/services/tauri'
+import { invokeOptional, isElectronRuntime } from '@/services/desktop'
 
-vi.mock('@/services/tauri', () => ({
+vi.mock('@/services/desktop', () => ({
   invokeOptional: vi.fn(),
-  isTauriRuntime: vi.fn(() => true),
+  isElectronRuntime: vi.fn(() => true),
 }))
 
 const mockedInvokeOptional = vi.mocked(invokeOptional)
-const mockedIsTauriRuntime = vi.mocked(isTauriRuntime)
+const mockedIsElectronRuntime = vi.mocked(isElectronRuntime)
 
 describe('app store generation bridge', () => {
   beforeEach(() => {
@@ -17,8 +17,8 @@ describe('app store generation bridge', () => {
     setActivePinia(createPinia())
     mockedInvokeOptional.mockReset()
     mockedInvokeOptional.mockResolvedValue(null)
-    mockedIsTauriRuntime.mockReset()
-    mockedIsTauriRuntime.mockReturnValue(true)
+    mockedIsElectronRuntime.mockReset()
+    mockedIsElectronRuntime.mockReturnValue(true)
   })
 
   it('does not expose the local preview model in default model configuration', () => {
@@ -163,7 +163,7 @@ describe('app store generation bridge', () => {
     expect(store.prompts.some((item) => item.title === '工作提示词')).toBe(true)
   })
 
-  it('passes the selected image model configuration to the Tauri generation command', async () => {
+  it('passes the selected image model configuration to the Electron generation command', async () => {
     const store = useAppStore()
     store.saveModel({
       id: 'remote-image',
@@ -293,7 +293,7 @@ describe('app store generation bridge', () => {
     expect(store.operationTasks[0].modeOptions).toEqual({ detailLevel: 72 })
   })
 
-  it('keeps structured Tauri generation errors and model call context for diagnostics', async () => {
+  it('keeps structured Electron generation errors and model call context for diagnostics', async () => {
     const store = useAppStore()
     store.saveModel({
       id: 'remote-image-structured-error',
@@ -880,7 +880,7 @@ describe('app store generation bridge', () => {
     }))
   })
 
-  it('passes the selected text model configuration to the Tauri polish command', async () => {
+  it('passes the selected text model configuration to the Electron polish command', async () => {
     const store = useAppStore()
     store.saveModel({
       id: 'remote-text',
@@ -928,7 +928,7 @@ describe('app store generation bridge', () => {
     )
   })
 
-  it('persists model configuration to the Tauri app state store', async () => {
+  it('persists model configuration to the Electron app state store', async () => {
     const store = useAppStore()
 
     store.saveModel({
@@ -958,7 +958,7 @@ describe('app store generation bridge', () => {
     )
   })
 
-  it('loads full app state from Tauri before merging persisted tasks', async () => {
+  it('loads full app state from Electron before merging persisted tasks', async () => {
     mockedInvokeOptional.mockImplementation(async (command) => {
       if (command === 'load_app_state') {
         return {
@@ -1054,7 +1054,7 @@ describe('app store generation bridge', () => {
   })
 
   it('does not mark remote models failed when connection testing runs in browser preview', async () => {
-    mockedIsTauriRuntime.mockReturnValue(false)
+    mockedIsElectronRuntime.mockReturnValue(false)
     const store = useAppStore()
     store.saveModel({
       id: 'browser-preview-text',
@@ -1130,7 +1130,7 @@ describe('app store generation bridge', () => {
     }))
   })
 
-  it('fetches model catalog through Tauri when running in desktop runtime', async () => {
+  it('fetches model catalog through Electron when running in desktop runtime', async () => {
     const store = useAppStore()
     const profile = {
       id: 'remote-text',

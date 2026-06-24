@@ -1,0 +1,20 @@
+<view class="page">
+  <view class="section">
+    <view class="title">提示词市场</view>
+    <input class="input" value="{{keyword}}" bindinput="onSearch" placeholder="搜索提示词" />
+    <view class="actions">
+      <button class="button-soft" data-source="glidea" bindtap="sync">Glidea</button>
+      <button class="button-soft" data-source="EvoLinkAI" bindtap="sync">EvoLinkAI</button>
+      <button class="button-soft" data-source="freestylefly" bindtap="sync">Freestylefly</button>
+    </view>
+    <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
+    <view wx:if="{{error}}" class="danger-text">{{error}}</view>
+  </view>
+
+  <view wx:for="{{prompts}}" wx:key="id" class="section">
+    <view class="title small">{{item.title}}</view>
+    <view>{{item.prompt}}</view>
+    <view wx:if="{{item.promptEn}}" class="muted">{{item.promptEn}}</view>
+    <button class="button-primary" data-prompt="{{item.prompt}}" bindtap="usePrompt">使用</button>
+  </view>
+</view>

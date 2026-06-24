@@ -10,6 +10,7 @@ export default [
       '.cargo-target-test/**',
       '.tmp/**',
       'dist/**',
+      'miniprogram/**',
       'node_modules/**',
       'src-tauri/gen/**',
       'src-tauri/target*/**',
@@ -51,9 +52,10 @@ export default [
     },
   },
   {
-    files: ['scripts/**/*.cjs'],
+    files: ['scripts/**/*.cjs', 'electron/**/*.cjs'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+      'preserve-caught-error': 'off',
     },
   },
 ]

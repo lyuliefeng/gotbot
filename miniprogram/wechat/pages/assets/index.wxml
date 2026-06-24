@@ -1,0 +1,28 @@
+<view class="page">
+  <view class="section">
+    <view class="title">资产库</view>
+    <view class="subtitle">{{taskCountText}}</view>
+    <button class="chip {{favoriteFilterClass}}" bindtap="toggleFilter">只看收藏</button>
+  </view>
+
+  <block wx:for="{{visibleTasks}}" wx:key="id">
+    <view class="section">
+      <view class="title">{{item.modeLabel}}</view>
+      <view class="muted">{{item.prompt}}</view>
+      <view class="grid">
+        <view wx:for="{{item.assets}}" wx:for-item="asset" wx:key="id" class="card">
+          <image class="preview" src="{{asset.assetUrl}}" mode="aspectFill" data-url="{{asset.assetUrl}}" bindtap="previewAsset" />
+          <view>{{asset.title}}</view>
+          <view class="muted">{{asset.format}} · {{asset.width}} x {{asset.height}}</view>
+          <button class="button-soft" data-task-id="{{item.id}}" data-asset-id="{{asset.id}}" bindtap="toggleFavorite">{{asset.favoriteText}}</button>
+        </view>
+      </view>
+      <button class="button-danger" data-id="{{item.id}}" bindtap="deleteTask">删除任务</button>
+    </view>
+  </block>
+
+  <block wx:if="{{hasTasks}}"></block>
+  <view wx:else class="section">
+    <view class="muted">还没有生成资产，去创作页生成第一批图片。</view>
+  </view>
+</view>

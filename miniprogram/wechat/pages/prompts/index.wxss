@@ -1,0 +1,7 @@
+.small {
+  font-size: 30rpx;
+}
+
+.button-primary {
+  margin-top: 18rpx;
+}

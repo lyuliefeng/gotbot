@@ -65,7 +65,7 @@ const navigationShortcuts = [
         <div class="info-row"><span>应用名称</span><strong>道听徒说</strong></div>
         <div class="info-row"><span>版本</span><strong>3.0.0</strong></div>
         <div class="info-row"><span>运行模式</span><strong>本地单机 · 离线优先</strong></div>
-        <div class="info-row"><span>数据存储</span><strong>SQLite WAL + 本地文件系统</strong></div>
+        <div class="info-row"><span>数据存储</span><strong>Electron userData + 本地文件系统</strong></div>
       </article>
       <article class="author-card">
         <div class="author-head">

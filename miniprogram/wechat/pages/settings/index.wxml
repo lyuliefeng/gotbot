@@ -1,0 +1,32 @@
+<view class="page">
+  <view class="section">
+    <view class="title">模型配置</view>
+    <view class="subtitle">用户 Key 由云函数加密保存；平台 Key 只读取云函数环境变量。</view>
+    <view class="field"><view class="label">名称</view><input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" /></view>
+    <view class="field"><view class="label">Key 模式</view><picker mode="selector" range="{{keyModeOptions}}" value="{{keyModeIndex}}" bindchange="onKeyModeChange"><view class="picker-box">{{draft.keyMode}}</view></picker></view>
+    <view class="field"><view class="label">协议</view><picker mode="selector" range="{{protocolOptions}}" value="{{protocolIndex}}" bindchange="onProtocolChange"><view class="picker-box">{{draft.apiProtocol}}</view></picker></view>
+    <view class="field"><view class="label">Base URL</view><input class="input" value="{{draft.endpoint}}" data-field="endpoint" bindinput="onInput" /></view>
+    <view class="field"><view class="label">API Path</view><input class="input" value="{{draft.apiPath}}" data-field="apiPath" bindinput="onInput" /></view>
+    <view class="field"><view class="label">模型 ID</view><input class="input" value="{{draft.model}}" data-field="model" bindinput="onInput" /></view>
+    <view wx:if="{{showUserKeyFields}}" class="field"><view class="label">API Key</view><input class="input" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" /></view>
+    <view wx:if="{{showUserKeyFields}}" class="field"><view class="label">Secret Key</view><input class="input" password value="{{draft.apiSecret}}" data-field="apiSecret" bindinput="onInput" /></view>
+    <view class="actions">
+      <button class="button-primary" bindtap="save">保存模型</button>
+      <button class="button-soft" bindtap="testModel">检测连接</button>
+    </view>
+    <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
+    <view wx:if="{{error}}" class="danger-text">{{error}}</view>
+  </view>
+
+  <view class="section">
+    <view class="title">已配置模型</view>
+    <view wx:for="{{models}}" wx:key="id" class="model-item">
+      <view>{{item.name}}</view>
+      <view class="muted">{{item.summary}}</view>
+      <view class="actions">
+        <button class="button-soft" data-id="{{item.id}}" bindtap="edit">编辑</button>
+        <button class="button-danger" data-id="{{item.id}}" bindtap="remove">删除</button>
+      </view>
+    </view>
+  </view>
+</view>

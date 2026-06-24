@@ -11,7 +11,7 @@ import {
   stylePresets,
 } from '@/data/catalog'
 import { browserStorage } from '@/services/storage'
-import { invokeOptional, isTauriRuntime } from '@/services/tauri'
+import { invokeOptional, isElectronRuntime } from '@/services/desktop'
 import {
   buildIcoFile,
   bytesToDataUrl,
@@ -409,9 +409,9 @@ export const useAppStore = defineStore('app', () => {
   function persist(): void {
     const snapshot = snapshotState()
     persistBrowserState(snapshotBrowserState())
-    if (isTauriRuntime()) {
+    if (isElectronRuntime()) {
       void invokeOptional('save_app_state', { value: snapshot }).catch((error: unknown) => {
-        console.warn('Failed to persist app state to Tauri', error)
+        console.warn('Failed to persist app state to Electron', error)
       })
     }
   }
@@ -457,7 +457,7 @@ export const useAppStore = defineStore('app', () => {
 
   async function loadPersistedTasks(): Promise<void> {
     const backendState = await invokeOptional<PersistedState>('load_app_state').catch((error: unknown) => {
-      console.warn('Failed to load app state from Tauri', error)
+      console.warn('Failed to load app state from Electron', error)
       return null
     })
     if (backendState) {
@@ -466,7 +466,7 @@ export const useAppStore = defineStore('app', () => {
     }
 
     const backendTasks = await invokeOptional<GenerationTask[]>('list_generation_tasks', { limit: 500 }).catch((error: unknown) => {
-      console.warn('Failed to load persisted tasks from Tauri', error)
+      console.warn('Failed to load persisted tasks from Electron', error)
       return null
     })
     if (!backendTasks?.length) return
@@ -487,7 +487,7 @@ export const useAppStore = defineStore('app', () => {
       notify(validationMessage, 'error')
       throw new Error(validationMessage)
     }
-    if (!isTauriRuntime()) {
+    if (!isElectronRuntime()) {
       const message = isVideoMode ? '请在桌面版使用真实视频模型生成视频' : '请在桌面版使用真实图像模型生成图片'
       const failedTask = createFailedGenerationTask(input, new Error(message), selectedModel)
       recordGenerationTask(failedTask)
@@ -498,7 +498,7 @@ export const useAppStore = defineStore('app', () => {
     let task: GenerationTask
     try {
       const commandResult = await invokeOptional<GenerationTask>('create_generation_task', { input, model: selectedModel })
-      if (!commandResult) throw new Error('Tauri 生成命令不可用')
+      if (!commandResult) throw new Error('Electron 生成命令不可用')
       task = commandResult
     } catch (error) {
       const failedTask = createFailedGenerationTask(input, error, selectedModel)
@@ -533,9 +533,9 @@ export const useAppStore = defineStore('app', () => {
 
   async function polishPrompt(input: TextPolishInput, modelId?: string): Promise<TextPolishResult> {
     const selectedTextModel = textModels.value.find((model) => model.id === modelId) ?? primaryTextModel.value
-    if (isTauriRuntime()) {
+    if (isElectronRuntime()) {
       const result = await invokeOptional<TextPolishResult>('polish_prompt', { input, model: selectedTextModel })
-      if (!result) throw new Error('Tauri 润色命令不可用')
+      if (!result) throw new Error('Electron 润色命令不可用')
       notify(`已使用 ${result.modelName} 润色提示词`)
       return result
     }
@@ -597,9 +597,9 @@ export const useAppStore = defineStore('app', () => {
       throw new Error('检测到中文提示词，请先配置可用的文本模型用于自动翻译英文提示词')
     }
     const request: TextPolishInput = { ...input, task: 'translate-to-english' }
-    if (isTauriRuntime()) {
+    if (isElectronRuntime()) {
       const result = await invokeOptional<TextPolishResult>('polish_prompt', { input: request, model: selectedTextModel })
-      if (!result) throw new Error('Tauri 翻译命令不可用')
+      if (!result) throw new Error('Electron 翻译命令不可用')
       notify(`已使用 ${result.modelName} 翻译为英文提示词`)
       return result
     }
@@ -609,9 +609,9 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function fetchModelCatalog(profile: ModelProfile): Promise<ModelCatalogItem[]> {
-    if (!isTauriRuntime()) return []
+    if (!isElectronRuntime()) return []
     const result = await invokeOptional<ModelCatalogItem[]>('list_model_catalog', { profile })
-    if (!result) throw new Error('Tauri 模型列表命令不可用')
+    if (!result) throw new Error('Electron 模型列表命令不可用')
     return result
   }
 
@@ -787,7 +787,7 @@ export const useAppStore = defineStore('app', () => {
       notify(validationMessage, 'error')
       return
     }
-    if (!isTauriRuntime()) {
+    if (!isElectronRuntime()) {
       model.status = 'untested'
       model.lastCheckedAt = new Date().toISOString()
       persist()
@@ -801,7 +801,7 @@ export const useAppStore = defineStore('app', () => {
     model.status = result?.ok ? 'connected' : 'failed'
     model.lastCheckedAt = new Date().toISOString()
     persist()
-    notify(result?.message ?? (isTauriRuntime() ? '模型连接检测失败' : '浏览器预览模式无法直连模型 API'), result?.ok ? 'success' : 'error')
+    notify(result?.message ?? (isElectronRuntime() ? '模型连接检测失败' : '浏览器预览模式无法直连模型 API'), result?.ok ? 'success' : 'error')
   }
 
   function removeModel(id: string): void {
@@ -880,7 +880,7 @@ export const useAppStore = defineStore('app', () => {
     tasks.value = []
     activePrompt.value = ''
     await invokeOptional('clear_generation_tasks').catch((error: unknown) => {
-      console.warn('Failed to clear persisted tasks from Tauri', error)
+      console.warn('Failed to clear persisted tasks from Electron', error)
     })
     persist()
     notify('已恢复初始数据')
@@ -889,7 +889,7 @@ export const useAppStore = defineStore('app', () => {
   async function clearHistory(): Promise<void> {
     tasks.value = []
     await invokeOptional('clear_generation_tasks').catch((error: unknown) => {
-      console.warn('Failed to clear persisted tasks from Tauri', error)
+      console.warn('Failed to clear persisted tasks from Electron', error)
     })
     persist()
     notify('资产库已清空')
@@ -910,7 +910,7 @@ export const useAppStore = defineStore('app', () => {
     }
 
     await invokeOptional('delete_generation_asset', { taskId, assetId }).catch((error: unknown) => {
-      console.warn('Failed to delete generated asset from Tauri', error)
+      console.warn('Failed to delete generated asset from Electron', error)
     })
     persist()
     notify(`已删除图片：${target.title}`)
@@ -979,7 +979,7 @@ export const useAppStore = defineStore('app', () => {
         metadataJson,
       },
     }).catch((error: unknown) => {
-      console.warn('Tauri export failed; using browser download fallback', error)
+      console.warn('Electron export failed; using browser download fallback', error)
       return null
     })
 
@@ -1025,7 +1025,7 @@ export const useAppStore = defineStore('app', () => {
       entries.push({ name: `${baseName}_${size}x${size}.ico`, dataUrl: bytesToDataUrl(icoBytes, 'image/x-icon') })
     }
 
-    // Tauri 模式：后端打包 ZIP 写入本地
+    // Electron 模式：后端打包 ZIP 写入本地
     const result = await invokeOptional<string>('export_icon_bundle', {
       request: {
         entries,
@@ -1033,7 +1033,7 @@ export const useAppStore = defineStore('app', () => {
         bundleName: baseName,
       },
     }).catch((error: unknown) => {
-      console.warn('Tauri icon bundle export failed; using browser download fallback', error)
+      console.warn('Electron icon bundle export failed; using browser download fallback', error)
       return null
     })
 

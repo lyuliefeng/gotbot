@@ -1,0 +1,16 @@
+{
+  "name": "道听徒说",
+  "appid": "__UNI__GOTBOT",
+  "description": "AI 图像创作微信小程序版",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": true,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true
+  }
+}

@@ -1,6 +1,6 @@
 # 道听徒说
 
-> AI 图像视频创作工作台，基于 Tauri 2 + Vue 3，面向后续微信小程序和手机应用形态演进，所有配置和资产记录默认本地存储。
+> AI 图像视频创作工作台，基于 Electron + Vue 3，面向后续微信小程序和手机应用形态演进，所有配置和资产记录默认本地存储。
 
 道听徒说是一个面向普通用户和创作者的私有 AI 图像视频创作工具，覆盖提示词、模型管理、文生图、图生图、文生视频、图生视频、导出和资产归档工作流。配置和资产记录都留在本机，隐私优先；只有在调用你配置的模型 API 时才联网。
 
@@ -72,7 +72,7 @@
 
 | 层 | 技术 |
 |---|---|
-| 桌面运行时 | Tauri 2.x (Rust + WebView) |
+| 桌面运行时 | Electron 39 |
 | 前端 | Vue 3 + TypeScript + Vite |
 | 状态管理 | Pinia |
 | 路由 | Vue Router 4 |
@@ -80,8 +80,8 @@
 | Canvas 处理 | 原生 Canvas 2D（像素化 / 圆角 / 圆形裁切 / 调色板 / 重采样） |
 | 图像协议 | OpenAI / Anthropic / 通义万相 / 芒果 AIGC / 多模态 Chat |
 | TTS 协议 | OpenAI Audio Speech (`/v1/audio/speech`) |
-| 后端 HTTP | reqwest 0.12 |
-| 数据库 | SQLite (sqlx) + 浏览器 localStorage 双层 |
+| 后端 HTTP | Electron 主进程 fetch |
+| 数据库 | Electron userData JSON + 浏览器 localStorage 双层 |
 | 测试 | Vitest (单元 / 集成) + Playwright (E2E) |
 | 代码规范 | ESLint + TypeScript |
 | CI/CD | GitHub Actions (Windows / macOS / Linux 三平台) |
@@ -90,8 +90,7 @@
 
 ### 开发环境
 - Node.js 20+
-- Rust stable toolchain
-- Tauri 2 依赖（参考 https://tauri.app/start/prerequisites/）
+- Electron 运行依赖（随 npm 安装 Electron 二进制）
 
 ### 安装与运行
 ```bash
@@ -102,13 +101,13 @@ npm install
 npm run dev
 # 访问 http://127.0.0.1:3030
 
-# 3. 启动 Tauri 桌面版（推荐）
-npm run tauri:dev
+# 3. 启动 Electron 桌面版（推荐）
+npm run electron:dev
 ```
 
 ### 代码检查
 ```bash
-# 单元测试 + 集成测试 + Rust 测试 + Lint + 类型检查 + 构建
+# 单元测试 + 集成测试 + Electron 语法检查 + Lint + 类型检查 + 构建
 npm run check
 ```
 
@@ -133,7 +132,7 @@ npm run check:release
 | `mgtv-storyboard` | `POST {BASE}/openapi/v1/storyboard/generateByPromptV2` | `styleId` / `resolution` / `ratio` | 芒果 AIGC 分镜生图 |
 | `openai-audio-speech` | `POST {BASE}/v1/audio/speech` | `model` / `input` / `voice` | OpenAI TTS 系列（tts-1、tts-1-hd、gpt-4o-mini-tts） |
 
-> 后端代码：`src-tauri/src/generation.rs` 中每个 `create_*_generation` 函数对应一个协议；`src-tauri/src/commands.rs` 的 `infer_catalog_model_kind` 通过关键字集合自动判定每个模型的种类（图像 / 文本 / 语音）。
+> 后端代码：`electron/main.cjs` 中的 `create*Generation` 函数对应 Electron 桌面端协议适配；`inferModelKind` 通过关键字集合自动判定每个模型的种类（图像 / 文本 / 语音）。
 
 ### 主流模型配置示例
 
@@ -155,7 +154,7 @@ npm run check:release
   }
   ```
 - **响应**：`{ "data": [{ "b64_json": "..." }, ...] }`
-- **道听徒说处理**：`src-tauri/src/generation.rs::create_openai_images_generation` 解码 `b64_json` 并打包成 `GeneratedAsset`。
+- **道听徒说处理**：`electron/main.cjs::createOpenAiImagesGeneration` 解码 `b64_json` 并打包成 `GeneratedAsset`。
 - **Size 限制**：App 内会校验 `input.width` / `input.height` 必须在 16–4096 之间，DALL-E 3 仅支持 1024² / 1024×1792 / 1792×1024 几个固定值。
 
 #### 2. xAI Grok Imagine
@@ -264,7 +263,7 @@ npm run check:release
 
 ### 发布新版本
 ```bash
-# 1. 修改 src-tauri/tauri.conf.json 的 version
+# 1. 修改 package.json 的 version
 # 2. 提交并推送
 git add . && git commit -m "chore: bump version"
 git push
@@ -301,23 +300,13 @@ git push origin v3.0.1
 │   ├── router.ts
 │   ├── components/AppShell.vue
 │   └── main.ts
-├── src-tauri/                  # Rust 后端
-│   ├── src/
-│   │   ├── main.rs
-│   │   ├── lib.rs
-│   │   ├── commands.rs         # Tauri 命令（生图 / 提示词润色 / 模型列表 / 资产导出）
-│   │   ├── generation.rs       # 图像生成协议分发
-│   │   ├── text.rs             # 文本润色 + 翻译
-│   │   ├── api_endpoint.rs     # BASE_URL + 路径拼接
-│   │   ├── state.rs            # SQLite 持久化
-│   │   └── error.rs
-│   ├── tests/                  # 集成测试
-│   └── tauri.conf.json
+├── electron/                   # Electron 主进程与 preload 桥
+│   ├── main.cjs                # IPC 命令（生图 / 提示词润色 / 模型列表 / 资产导出）
+│   └── preload.cjs             # 安全暴露 window.electronAPI
 ├── tests/e2e/smoke.spec.ts     # Playwright E2E
 ├── scripts/
-│   ├── cargo-cli.cjs
-│   ├── tauri-cli.cjs
-│   └── capture-screenshots.cjs # 系统截图采集
+│   ├── cargo-cli.cjs           # legacy Tauri/Rust 测试辅助
+│   └── tauri-cli.cjs           # legacy Tauri CLI 辅助
 ├── .github/workflows/
 │   ├── ci.yml                 # push/PR 跑 lint + test + build
 │   └── release.yml            # tag push 跑多平台构建并发布
@@ -357,7 +346,7 @@ git push origin v3.0.1
 | 数据 | 存储 |
 |---|---|
 | 模型 / 提示词 / 任务 / 封面预设 / 设置 | 浏览器 localStorage（key: `samimage.v3.state`） |
-| 任务（含 dataUrl） | Tauri 后端 SQLite (`samimage-v3.sqlite3`) |
+| 任务（含 dataUrl） | Electron userData JSON (`state.json`) |
 | 生成的图片（带 localPath） | 设置中的默认输出目录 |
 
 ## 测试
@@ -365,18 +354,18 @@ git push origin v3.0.1
 | 范围 | 命令 | 数量 |
 |---|---|---|
 | 前端单元 / 集成 | `npm run test` | 300+ 测试 / 1350 文件 |
-| Rust 单元 / 集成 | `npm run test:rust` | 143+ 测试 / 24 suites |
+| Electron 主进程语法 | `npm run test:electron` | main/preload 语法检查 |
 | E2E（Playwright） | `npm run test:e2e` | smoke.spec.ts |
 
 ## 许可与隐私
 
 - 项目不收集任何用户数据
-- API Key 保存在本地（localStorage + SQLite）
+- API Key 保存在本地（localStorage + Electron userData JSON）
 - 配置、提示词和资产库记录不会上传到任何服务器
 - 仅在生成图像时才会向你配置的模型 API 发送请求
 
 ## 致谢
 
-- Tauri 团队
+- Electron 团队
 - 所有开源协议提供者（OpenAI、Anthropic、阿里云通义万相、芒果 AIGC）
 - [glidea/banana-prompt-quicker](https://github.com/glidea/banana-prompt-quicker)、[EvoLinkAI/awesome-gpt-image-2-API-and-Prompts](https://github.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts)、[freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2) — 提示词市场同步源

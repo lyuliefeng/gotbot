@@ -1,0 +1,30 @@
+{
+  "pages": [
+    "pages/workspace/index",
+    "pages/assets/index",
+    "pages/tools/index",
+    "pages/settings/index",
+    "pages/prompts/index",
+    "pages/about/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "道听徒说",
+    "navigationBarBackgroundColor": "#f3f6fb",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f3f6fb"
+  },
+  "tabBar": {
+    "color": "#64748b",
+    "selectedColor": "#2563eb",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/workspace/index", "text": "创作" },
+      { "pagePath": "pages/assets/index", "text": "资产" },
+      { "pagePath": "pages/tools/index", "text": "工具" },
+      { "pagePath": "pages/settings/index", "text": "设置" }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2"
+}

@@ -1,0 +1,8 @@
+.model-item {
+  border-top: 1rpx solid #e2e8f0;
+  padding: 20rpx 0;
+}
+
+.actions {
+  margin-top: 18rpx;
+}

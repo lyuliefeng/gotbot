@@ -1,0 +1,3 @@
+.button-danger {
+  margin-top: 20rpx;
+}

@@ -1,0 +1,7 @@
+{
+  "name": "gotbot-miniprogram-cloud-common",
+  "private": true,
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

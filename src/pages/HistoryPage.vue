@@ -5,7 +5,7 @@ import { Download, Eye, FolderOpen, RotateCcw, Search, Star, Trash2, ZoomIn } fr
 import { getAvailableIcoExportSizes, getExportFormatOptions, defaultIconProjectName, iconExportFormatOptions, iconSizePresets, modeLabels } from '@/data/catalog'
 import type { IconExportKind } from '@/data/catalog'
 import { useAppStore } from '@/stores/app'
-import { pickDirectory } from '@/services/tauri'
+import { pickDirectory } from '@/services/desktop'
 import type { ExportFormat, GeneratedAsset, GenerationMode, GenerationTask } from '@/types/domain'
 
 type ExportSource = 'original' | 'adjusted'

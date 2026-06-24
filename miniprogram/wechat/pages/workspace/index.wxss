@@ -1,0 +1,8 @@
+.half {
+  width: calc(50% - 7rpx);
+}
+
+.button-primary {
+  margin-top: 24rpx;
+  width: 100%;
+}

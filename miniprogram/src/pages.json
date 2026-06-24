@@ -1,0 +1,28 @@
+{
+  "pages": [
+    { "path": "pages/workspace/index", "style": { "navigationBarTitleText": "创作" } },
+    { "path": "pages/assets/index", "style": { "navigationBarTitleText": "资产库" } },
+    { "path": "pages/tools/index", "style": { "navigationBarTitleText": "工具库" } },
+    { "path": "pages/settings/index", "style": { "navigationBarTitleText": "设置" } },
+    { "path": "pages/prompts/index", "style": { "navigationBarTitleText": "提示词" } },
+    { "path": "pages/about/index", "style": { "navigationBarTitleText": "关于" } }
+  ],
+  "tabBar": {
+    "color": "#64748b",
+    "selectedColor": "#2563eb",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/workspace/index", "text": "创作" },
+      { "pagePath": "pages/assets/index", "text": "资产" },
+      { "pagePath": "pages/tools/index", "text": "工具" },
+      { "pagePath": "pages/settings/index", "text": "设置" }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "道听徒说",
+    "navigationBarBackgroundColor": "#f3f6fb",
+    "backgroundColor": "#f3f6fb"
+  }
+}

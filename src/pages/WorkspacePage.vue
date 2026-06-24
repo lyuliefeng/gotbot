@@ -22,7 +22,7 @@ import { aspectPresets, defaultIconProjectName, defaultToolForMode, findToolEntr
 import type { IconExportKind } from '@/data/catalog'
 import { useAppStore } from '@/stores/app'
 import { containsChineseText } from '@/domain/language'
-import { pickDirectory } from '@/services/tauri'
+import { pickDirectory } from '@/services/desktop'
 import { synthesizeGifDataUrl } from '@/domain/gif'
 import { applyPostProcessPipeline } from '@/domain/postprocess'
 import { resolveToolEffects, type ModeState } from '@/domain/tools'
@@ -220,7 +220,7 @@ const promptLanguageHint = computed(() => {
 })
 const previewMode = computed<GenerationMode>(() => currentTask.value?.mode ?? mode.value)
 const modeOptions = computed<Record<string, string | number | boolean>>(() => {
-  // 模式 + 工具控件参数：去掉了 toolId/toolTitle 冗余（仅 Rust 后端真读的模式/工具参数）
+  // 模式 + 工具控件参数：去掉了 toolId/toolTitle 冗余（仅 Electron 主进程真读的模式/工具参数）
   const options: Record<string, string | number | boolean> = {}
   if (mode.value === 'txt2img') {
     options.creativity = creativity.value
@@ -1078,7 +1078,7 @@ async function chooseWorkspaceExportDir(): Promise<void> {
           <div class="result-head">
             <div>
               <h1>生成结果预览</h1>
-              <p class="muted">请先在设置中配置真实图像/视频模型；生成会由 Rust/Tauri 命令接管。</p>
+              <p class="muted">请先在设置中配置真实图像/视频模型；生成会由 Electron 命令接管。</p>
             </div>
             <span class="chip accent">{{ resultCount }} 个结果</span>
           </div>
