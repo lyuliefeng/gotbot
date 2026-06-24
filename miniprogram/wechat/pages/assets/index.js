@@ -1,6 +1,7 @@
 const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
 const { modeLabels } = require('../../utils/catalog')
+const { resolveTaskAssetUrls } = require('../../utils/assets')
 
 Page({
   data: {
@@ -20,13 +21,14 @@ Page({
 
   async loadTasks() {
     const state = loadState()
-    this.applyTasks(state.tasks || [])
+    this.applyTasks(await resolveTaskAssetUrls(state.tasks || []))
     callFunction('generationTasks', { action: 'list' })
-      .then((tasks) => {
+      .then(async (tasks) => {
+        const resolvedTasks = await resolveTaskAssetUrls(tasks)
         const next = loadState()
-        next.tasks = tasks
+        next.tasks = resolvedTasks
         saveState(next)
-        this.applyTasks(tasks)
+        this.applyTasks(resolvedTasks)
       })
       .catch(() => undefined)
   },
@@ -42,7 +44,7 @@ Page({
       modeLabel: modeLabels[task.mode] || task.mode,
       assets: (task.assets || []).map((asset) => ({
         ...asset,
-        assetUrl: asset.remoteUrl || asset.dataUrl || '',
+        assetUrl: asset.assetUrl || asset.remoteUrl || asset.dataUrl || '',
         favoriteText: asset.isFavorite ? '取消收藏' : '收藏',
       })),
     }))

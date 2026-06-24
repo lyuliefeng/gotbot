@@ -22,12 +22,12 @@ exports.main = async function main(event = {}, context = {}) {
     if (event.action === 'create') {
       const profiles = await list('modelProfiles', (item) => item.openid === openid)
       const model = hydrateProfile(profiles.find((item) => item.id === event.input.modelId) || {
-        id: 'platform-openai-image',
-        name: '平台 OpenAI Images',
-        endpoint: 'https://api.openai.com',
-        apiPath: 'v1/images/generations',
-        apiProtocol: 'openai-images',
-        model: 'gpt-image-1',
+        id: 'platform-agnes-image',
+        name: '平台 Agnes Image',
+        endpoint: 'https://apihub.agnes-ai.com/v1',
+        apiPath: 'images/generations',
+        apiProtocol: 'agnes-image',
+        model: 'agnes-image-2.1-flash',
         keyMode: 'platform',
       })
       const task = await createGenerationTask(event.input, model, openid)

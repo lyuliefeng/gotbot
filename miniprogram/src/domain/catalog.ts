@@ -114,13 +114,13 @@ export const builtinPrompts: PromptItem[] = normalizeBilingualPromptMarkdown(bui
 
 export const defaultModels: ModelProfile[] = [
   {
-    id: 'platform-openai-image',
-    name: '平台 OpenAI Images',
+    id: 'platform-agnes-image',
+    name: '平台 Agnes Image',
     provider: 'openai-compatible',
-    endpoint: 'https://api.openai.com',
-    apiPath: 'v1/images/generations',
-    apiProtocol: 'openai-images',
-    model: 'gpt-image-1',
+    endpoint: 'https://apihub.agnes-ai.com/v1',
+    apiPath: 'images/generations',
+    apiProtocol: 'agnes-image',
+    model: 'agnes-image-2.1-flash',
     kind: 'image',
     isPrimary: true,
     status: 'untested',

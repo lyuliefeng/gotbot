@@ -40,6 +40,8 @@ for (const functionName of functions) {
     main: 'index.js',
     dependencies: { 'wx-server-sdk': 'latest' },
   }, null, 2))
+  const configPath = path.join(sourceRoot, functionName, 'config.json')
+  if (fs.existsSync(configPath)) fs.copyFileSync(configPath, path.join(target, 'config.json'))
 }
 
 console.log(`Bundled cloud functions written to ${outputRoot}`)

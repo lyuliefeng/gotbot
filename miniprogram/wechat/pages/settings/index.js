@@ -7,16 +7,16 @@ const keyModeOptions = ['user', 'platform']
 function emptyDraft() {
   return {
     id: '',
-    name: '我的图像模型',
+    name: '我的 Agnes 图像模型',
     provider: 'openai-compatible',
-    endpoint: 'https://api.openai.com',
-    apiPath: 'v1/images/generations',
-    apiProtocol: 'openai-images',
+    endpoint: 'https://apihub.agnes-ai.com/v1',
+    apiPath: 'images/generations',
+    apiProtocol: 'agnes-image',
     apiKey: '',
     apiSecret: '',
-    model: 'gpt-image-1',
+    model: 'agnes-image-2.1-flash',
     kind: 'image',
-    keyMode: 'user',
+    keyMode: 'platform',
     isPrimary: false,
     status: 'untested',
   }

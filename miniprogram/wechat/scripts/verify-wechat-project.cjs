@@ -81,7 +81,7 @@ for (const fn of ['login', 'modelProfiles', 'generationTasks', 'promptPacks']) {
   assert(packageJson.dependencies && packageJson.dependencies['wx-server-sdk'], `${fn}/package.json must depend on wx-server-sdk`)
 }
 
-for (const util of ['catalog.js', 'cloud.js', 'state.js', 'validators.js']) {
+for (const util of ['assets.js', 'catalog.js', 'cloud.js', 'state.js', 'validators.js']) {
   exists(path.join(root, 'utils', util))
 }
 

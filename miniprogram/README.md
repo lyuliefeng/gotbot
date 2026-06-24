@@ -29,7 +29,7 @@ npm run build:h5
 
 本机已额外验证微信开发者工具 CLI：`cli islogin --port 9421` 返回登录状态正常；`cli open --project miniprogram/wechat --port 9421 --disable-gpu` 返回 `✔ open`；`cli preview --project miniprogram/wechat --port 9421 --qr-format image --qr-output /tmp/gotbot-wechat-preview/preview.png --info-output /tmp/gotbot-wechat-preview/info.json` 返回 `✔ preview`；`cli upload --project miniprogram/wechat --port 9421 --version 0.1.2 --desc 'gotbot 小程序首版，云函数已部署'` 返回 `✔ upload`。当前预览/上传包大小约 `35.5 KB`。
 
-云开发环境 `cloud1-d5g01k4t5decfcc5c` 已验证存在，`login`、`modelProfiles`、`generationTasks`、`promptPacks` 已部署并处于 `Active` 状态。由于当前微信开发者工具 CLI 对包含 `common/` 子目录的云函数全量部署会触发 `EISDIR`，部署时先运行 `node wechat/scripts/build-cloudfunction-bundles.cjs /tmp/gotbot-cloudfunctions-bundled` 生成单文件部署包，再从该目录部署云函数。
+云开发环境 `cloud1-d5g01k4t5decfcc5c` 已验证存在，`login`、`modelProfiles`、`generationTasks`、`promptPacks` 已部署并处于 `Active` 状态。由于当前微信开发者工具 CLI 对包含 `common/` 子目录的云函数全量部署会触发 `EISDIR`，部署时先运行 `node wechat/scripts/build-cloudfunction-bundles.cjs /tmp/gotbot-cloudfunctions-bundled` 生成单文件部署包，再从该目录部署云函数。也可以登录 CloudBase CLI 后运行 `wechat/scripts/deploy-cloudbase.cjs`，它会生成 `/tmp` 临时部署配置并部署四个云函数。
 
 ## 微信小程序部署说明
 
@@ -38,7 +38,7 @@ npm run build:h5
 1. 确认 `wechat/project.config.json` 里的 `appid` 是真实小程序 AppID。
 2. 在微信开发者工具中打开 `miniprogram/wechat`。
 3. 确认云开发环境为 `cloud1-d5g01k4t5decfcc5c`，或按目标环境更新 `wechat/app.js` 中的 `wx.cloud.init`。
-4. 如需重新部署云函数，先运行 `node wechat/scripts/build-cloudfunction-bundles.cjs /tmp/gotbot-cloudfunctions-bundled`，再用微信开发者工具 CLI/GUI 部署生成后的四个函数。
+4. 如需重新部署云函数，推荐先登录 CloudBase CLI，再运行 `PLATFORM_IMAGE_API_KEY=... GOTBOT_MINIPROGRAM_SECRET=... node wechat/scripts/deploy-cloudbase.cjs`。脚本会生成 `/tmp` 临时部署配置，不会把密钥写进仓库。
 5. 配置云函数环境变量后预览、真机调试或提交审核。
 
 `src/` 目录仍保留 Vue 3/H5 迁移骨架和领域层测试；`wechat/` 是当前用于微信开发者工具部署验证的原生小程序工程。
@@ -50,6 +50,8 @@ npm run build:h5
 - `PLATFORM_IMAGE_API_KEY`
 - `PLATFORM_IMAGE_API_SECRET`
 - `GOTBOT_MINIPROGRAM_SECRET`：用户 Key 的 AES-GCM 加密密钥，生产环境必须配置。
+
+Agnes 平台模型默认使用 `https://apihub.agnes-ai.com/v1` 和 `agnes-image-2.1-flash`。`generationTasks` 云函数需要更长超时，当前配置为 60 秒。
 
 ## 首版范围
 

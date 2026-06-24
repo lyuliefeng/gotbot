@@ -2,6 +2,7 @@ const { tools, prompts, modeLabels } = require('../../utils/catalog')
 const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
 const { validateGenerationInput } = require('../../utils/validators')
+const { resolveAssetUrls } = require('../../utils/assets')
 
 Page({
   data: {
@@ -107,7 +108,7 @@ Page({
       validateGenerationInput(input)
       this.setData({ loading: true, generateButtonText: '生成中', error: '', notice: '' })
       const task = await callFunction('generationTasks', { action: 'create', input })
-      const currentAssets = (task.assets || []).map((asset) => ({ ...asset, assetUrl: asset.remoteUrl || asset.dataUrl || '' }))
+      const currentAssets = await resolveAssetUrls(task.assets || [])
       const state = loadState()
       state.tasks = [{ ...task, assets: currentAssets }].concat((state.tasks || []).filter((item) => item.id !== task.id))
       saveState(state)

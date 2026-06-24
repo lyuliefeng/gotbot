@@ -20,12 +20,12 @@ async function main() {
     action: 'save',
     profile: {
       id: 'smoke-model',
-      name: 'Smoke Platform Model',
+      name: 'Smoke Agnes Model',
       provider: 'openai-compatible',
-      endpoint: 'https://api.openai.com',
-      apiPath: 'v1/images/generations',
-      apiProtocol: 'openai-images',
-      model: 'gpt-image-1',
+      endpoint: 'https://apihub.agnes-ai.com/v1',
+      apiPath: 'images/generations',
+      apiProtocol: 'agnes-image',
+      model: 'agnes-image-2.1-flash',
       kind: 'image',
       keyMode: 'platform',
       isPrimary: true,
@@ -40,6 +40,30 @@ async function main() {
 
   const testResult = await invoke('modelProfiles', { action: 'test', profile: savedModel })
   assert.equal(typeof testResult.message, 'string')
+
+  if (!process.env.PLATFORM_IMAGE_API_KEY) {
+    const generationMod = require(path.join(cloudRoot, 'generationTasks', 'index.js'))
+    const missingKeyResult = await generationMod.main({
+      action: 'create',
+      input: {
+        mode: 'txt2img',
+        prompt: 'smoke test poster',
+        negativePrompt: '',
+        modelId: 'smoke-model',
+        width: 512,
+        height: 512,
+        batchSize: 1,
+        steps: 20,
+        seed: 1,
+        style: '自然',
+        modeOptions: { toolId: 'text-to-image' },
+      },
+    }, context)
+    assert.equal(missingKeyResult.ok, false)
+    assert.match(missingKeyResult.error, /API Key/)
+    console.log('Cloud function smoke test passed without live Agnes key.')
+    return
+  }
 
   const task = await invoke('generationTasks', {
     action: 'create',
