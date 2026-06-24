@@ -51,7 +51,7 @@ npm run build:h5
 - `PLATFORM_IMAGE_API_SECRET`
 - `GOTBOT_MINIPROGRAM_SECRET`：用户 Key 的 AES-GCM 加密密钥，生产环境必须配置。
 
-Agnes 平台模型默认使用 `https://apihub.agnes-ai.com/v1` 和 `agnes-image-2.1-flash`。`generationTasks` 云函数需要更长超时，当前配置为 60 秒。
+Agnes 平台模型默认使用 `https://apihub.agnes-ai.com/v1` 和 `agnes-image-2.1-flash`。`generationTasks` 云函数需要更长超时，当前配置为 300 秒。
 
 ## 首版范围
 

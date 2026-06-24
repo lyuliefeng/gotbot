@@ -28,7 +28,7 @@ fs.cpSync(outputRoot, path.join(deployRoot, 'functions'), { recursive: true })
 const functions = [
   { name: 'login', timeout: 5 },
   { name: 'modelProfiles', timeout: 10 },
-  { name: 'generationTasks', timeout: 60 },
+  { name: 'generationTasks', timeout: 300 },
   { name: 'promptPacks', timeout: 10 },
 ]
 
