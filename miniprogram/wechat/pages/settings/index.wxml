@@ -1,23 +1,30 @@
 <view class="page">
-  <view class="section">
+  <view class="section channel-shell">
     <view class="channel-list-head">
       <view>
         <view class="title">渠道管理</view>
-        <view class="subtitle">渠道是上游 API 供应商。一个渠道可以拉取多个模型，保存后同步到 API 池。</view>
+        <view class="subtitle">上游供应商、模型拉取和 API 池同步。</view>
       </view>
-      <button class="button-primary compact" bindtap="openAddChannel">添加渠道</button>
+      <button class="button-primary compact" bindtap="openAddChannel">+ 添加</button>
     </view>
 
     <view wx:if="{{hasNoChannels}}" class="empty-state">还没有渠道，先添加一个上游供应商。</view>
-    <view wx:for="{{models}}" wx:key="id" class="channel-item {{item.enabledClass}}">
+    <view wx:for="{{models}}" wx:key="id" class="channel-row {{item.enabledClass}}">
       <view class="channel-head">
-        <view class="channel-name">{{item.displayName}}</view>
-        <view class="status-pill">{{item.enabledText}}</view>
+        <view class="channel-main">
+          <view class="channel-name">{{item.displayName}}</view>
+          <view class="muted mono channel-url">{{item.base_url}}</view>
+        </view>
+        <view class="channel-badges">
+          <view class="kind-pill">{{item.kindLabel}}</view>
+          <view class="status-pill">{{item.enabledText}}</view>
+        </view>
       </view>
-      <view class="muted">{{item.summary}}</view>
-      <view class="muted mono">{{item.base_url}}</view>
-      <view class="latency-row {{item.latencyBadgeClass}}">{{item.latencyLabel}}</view>
-      <view class="actions">
+      <view class="channel-foot">
+        <view class="muted">{{item.summary}}</view>
+        <view class="latency-row {{item.latencyBadgeClass}}">{{item.latencyLabel}}</view>
+      </view>
+      <view class="row-actions">
         <button class="button-soft" data-id="{{item.id}}" bindtap="edit">编辑</button>
         <button class="button-danger" data-id="{{item.id}}" bindtap="remove">删除</button>
       </view>
@@ -28,17 +35,19 @@
     <view class="channel-list-head">
       <view>
         <view class="title">{{editorTitle}}</view>
-        <view class="subtitle">填写渠道信息后，可以先测速，再获取模型列表。</view>
+        <view class="subtitle">填写 URL 与 Key，先测速，再获取模型列表。</view>
       </view>
       <button class="button-soft compact" bindtap="cancelEdit">关闭</button>
     </view>
 
-    <view class="field"><view class="label">渠道名称</view><input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="例如 Agnes、硅基流动、OpenAI" /></view>
-    <view class="field"><view class="label">API 类型</view><picker mode="selector" range="{{apiKindLabels}}" value="{{apiKindIndex}}" bindchange="onApiKindChange"><view class="picker-box">{{currentApiKindLabel}}</view></picker></view>
-    <view class="field"><view class="label">供应商协议</view><picker mode="selector" range="{{apiTypeLabels}}" value="{{apiTypeIndex}}" bindchange="onApiTypeChange"><view class="picker-box">{{currentApiTypeLabel}}</view></picker></view>
-    <view class="field"><view class="label">URL</view><input class="input mono" value="{{draft.base_url}}" bindinput="onBaseUrlInput" placeholder="https://example.com/v1" /></view>
-    <view class="field"><view class="label">API Key</view><textarea class="textarea mono" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="填入上游供应商 API Key" /></view>
-    <view class="field"><view class="label">备注</view><textarea class="textarea" value="{{draft.notes}}" data-field="notes" bindinput="onInput" placeholder="额度、账号、用途等备注" /></view>
+    <view class="form-grid">
+      <view class="field"><view class="label">渠道名称</view><input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="Agnes / OpenAI" /></view>
+      <view class="field"><view class="label">API 类型</view><picker mode="selector" range="{{apiKindLabels}}" value="{{apiKindIndex}}" bindchange="onApiKindChange"><view class="picker-box">{{currentApiKindLabel}}</view></picker></view>
+      <view class="field"><view class="label">供应商协议</view><picker mode="selector" range="{{apiTypeLabels}}" value="{{apiTypeIndex}}" bindchange="onApiTypeChange"><view class="picker-box">{{currentApiTypeLabel}}</view></picker></view>
+      <view class="field"><view class="label">URL</view><input class="input mono" value="{{draft.base_url}}" bindinput="onBaseUrlInput" placeholder="https://example.com/v1" /></view>
+      <view class="field wide"><view class="label">API Key</view><textarea class="textarea key-area mono" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="填入上游供应商 API Key；编辑时留空会保留原 Key" /></view>
+      <view class="field wide"><view class="label">备注</view><textarea class="textarea note-area" value="{{draft.notes}}" data-field="notes" bindinput="onInput" placeholder="额度、账号、用途等备注" /></view>
+    </view>
     <view class="switch-row">
       <view>
         <view class="label inline-label">渠道状态</view>
@@ -47,7 +56,7 @@
       <switch checked="{{draft.enabled}}" bindchange="onEnabledChange" />
     </view>
 
-    <view class="actions">
+    <view class="toolbar-actions">
       <button class="button-primary" bindtap="save">保存渠道</button>
       <button class="button-soft" bindtap="testModel">URL 测速</button>
       <button class="button-soft" bindtap="discoverModels">获取模型列表</button>
@@ -58,16 +67,18 @@
 
     <view wx:if="{{discoveredModels.length}}" class="discovery-list">
       <view class="subhead">模型列表</view>
-      <view wx:for="{{discoveredModels}}" wx:key="id" class="discovery-item">
-        <view class="discovery-meta">
-          <view class="discovery-name">{{item.name}}</view>
-          <view class="muted mono">{{item.id}}</view>
+      <scroll-view class="model-scroll" scroll-y="true">
+        <view wx:for="{{discoveredModels}}" wx:key="id" class="discovery-item">
+          <view class="discovery-meta">
+            <view class="discovery-name">{{item.name}}</view>
+            <view class="muted mono">{{item.id}}</view>
+          </view>
+          <view class="actions inline-actions">
+            <button class="button-soft" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">{{item.checkedText}}</button>
+            <button class="button-soft" data-id="{{item.id}}" bindtap="setDefaultDiscoveredModel">默认</button>
+          </view>
         </view>
-        <view class="actions inline-actions">
-          <button class="button-soft" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">{{item.checkedText}}</button>
-          <button class="button-soft" data-id="{{item.id}}" bindtap="setDefaultDiscoveredModel">默认</button>
-        </view>
-      </view>
+      </scroll-view>
     </view>
   </view>
 </view>

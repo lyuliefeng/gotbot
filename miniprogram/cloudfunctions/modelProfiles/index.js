@@ -265,6 +265,32 @@ async function discoverModels(profile) {
   throw new Error(`模型识别失败：${errors.join(' | ')}`)
 }
 
+async function existingProfile(openid, id) {
+  if (!id) return null
+  const matches = await list('modelProfiles', (item) => item.id === id && item.openid === openid)
+  return matches[0] || null
+}
+
+function encryptedKeyForSave(profile, existing) {
+  if (profile.keyMode !== 'user') return ''
+  if (profile.apiKey) return encryptText(profile.apiKey)
+  return existing?.encryptedApiKey || ''
+}
+
+function encryptedSecretForSave(profile, existing) {
+  if (profile.keyMode !== 'user') return ''
+  if (profile.apiSecret) return encryptText(profile.apiSecret)
+  return existing?.encryptedApiSecret || ''
+}
+
+function withStoredSecrets(profile, existing) {
+  return {
+    ...profile,
+    encryptedApiKey: profile.encryptedApiKey || existing?.encryptedApiKey || '',
+    encryptedApiSecret: profile.encryptedApiSecret || existing?.encryptedApiSecret || '',
+  }
+}
+
 exports.main = async function main(event = {}, context = {}) {
   try {
     const openid = context.OPENID || event.openid || 'mock-openid'
@@ -276,12 +302,13 @@ exports.main = async function main(event = {}, context = {}) {
     if (event.action === 'save') {
       const profile = normalizeProfile(event.profile || {})
       const id = profile.id || `model-${Date.now()}`
+      const existing = await existingProfile(openid, id)
       const saved = await upsert('modelProfiles', (item) => item.id === id && item.openid === openid, {
         ...profile,
         id,
         openid,
-        encryptedApiKey: profile.keyMode === 'user' ? encryptText(profile.apiKey || '') : '',
-        encryptedApiSecret: profile.keyMode === 'user' ? encryptText(profile.apiSecret || '') : '',
+        encryptedApiKey: encryptedKeyForSave(profile, existing),
+        encryptedApiSecret: encryptedSecretForSave(profile, existing),
         apiKey: undefined,
         apiSecret: undefined,
         updatedAt: new Date().toISOString(),
@@ -293,14 +320,16 @@ exports.main = async function main(event = {}, context = {}) {
     if (event.action === 'discover') {
       const profile = normalizeProfile(event.profile || {})
       const id = profile.id || `model-${Date.now()}`
-      const discovery = await discoverModels(profile)
+      const existing = await existingProfile(openid, id)
+      const hydratedProfile = withStoredSecrets(profile, existing)
+      const discovery = await discoverModels(hydratedProfile)
       const saved = await upsert('modelProfiles', (item) => item.id === id && item.openid === openid, {
         ...profile,
         ...discovery,
         id,
         openid,
-        encryptedApiKey: profile.keyMode === 'user' ? encryptText(profile.apiKey || '') : '',
-        encryptedApiSecret: profile.keyMode === 'user' ? encryptText(profile.apiSecret || '') : '',
+        encryptedApiKey: encryptedKeyForSave(profile, existing),
+        encryptedApiSecret: encryptedSecretForSave(profile, existing),
         apiKey: undefined,
         apiSecret: undefined,
         updatedAt: new Date().toISOString(),
@@ -323,10 +352,12 @@ exports.main = async function main(event = {}, context = {}) {
 
     if (event.action === 'test') {
       const profile = normalizeProfile(event.profile || {})
+      const existing = await existingProfile(openid, profile.id)
+      const stored = withStoredSecrets(profile, existing)
       const hydrated = {
-        ...profile,
-        apiKey: profile.keyMode === 'user' ? profile.apiKey || decryptText(profile.encryptedApiKey || '') : process.env.PLATFORM_IMAGE_API_KEY || '',
-        apiSecret: profile.keyMode === 'user' ? profile.apiSecret || decryptText(profile.encryptedApiSecret || '') : process.env.PLATFORM_IMAGE_API_SECRET || '',
+        ...stored,
+        apiKey: stored.keyMode === 'user' ? stored.apiKey || decryptText(stored.encryptedApiKey || '') : process.env.PLATFORM_IMAGE_API_KEY || '',
+        apiSecret: stored.keyMode === 'user' ? stored.apiSecret || decryptText(stored.encryptedApiSecret || '') : process.env.PLATFORM_IMAGE_API_SECRET || '',
       }
       const discoveryUrls = buildApiTypeDiscoveryUrls(hydrated.endpoint, hydrated.api_type)
       const startedAt = Date.now()

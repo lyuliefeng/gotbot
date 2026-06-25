@@ -311,7 +311,7 @@ Page({
         draft: decorateDraftMetrics(saved),
         discoveredModels: decorateDiscoveredModels(saved),
         showEditor: true,
-        notice: `已获取 ${saved.availableModels?.length || 0} 个模型并同步 API 池`,
+        notice: `已获取 ${availableModelsOf(saved).length} 个模型并同步 API 池`,
         error: '',
       })
     } catch (error) {

@@ -5,6 +5,10 @@
   gap: 18rpx;
 }
 
+.channel-shell {
+  padding-bottom: 18rpx;
+}
+
 .channel-list-head .title,
 .channel-list-head .subtitle {
   min-width: 0;
@@ -24,12 +28,12 @@
   text-align: center;
 }
 
-.channel-item {
+.channel-row {
   border-top: 1rpx solid #e2e8f0;
-  padding: 20rpx 0;
+  padding: 18rpx 0;
 }
 
-.channel-item.disabled {
+.channel-row.disabled {
   opacity: 0.68;
 }
 
@@ -52,6 +56,40 @@
   white-space: nowrap;
 }
 
+.channel-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.channel-url {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-badges,
+.row-actions,
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.channel-badges {
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.channel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+  margin-top: 8rpx;
+}
+
 .status-pill {
   flex-shrink: 0;
   border-radius: 999rpx;
@@ -61,7 +99,16 @@
   font-size: 22rpx;
 }
 
-.channel-item.disabled .status-pill {
+.kind-pill {
+  flex-shrink: 0;
+  border-radius: 999rpx;
+  padding: 8rpx 16rpx;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 22rpx;
+}
+
+.channel-row.disabled .status-pill {
   background: #f1f5f9;
   color: #64748b;
 }
@@ -86,6 +133,33 @@
   margin-top: 18rpx;
 }
 
+.row-actions {
+  margin-top: 12rpx;
+}
+
+.toolbar-actions {
+  margin-top: 16rpx;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14rpx;
+  margin-top: 16rpx;
+}
+
+.form-grid .field {
+  margin-top: 0;
+}
+
+.key-area {
+  height: 112rpx;
+}
+
+.note-area {
+  height: 104rpx;
+}
+
 .compact {
   flex-shrink: 0;
   min-width: 148rpx;
@@ -99,7 +173,7 @@
 }
 
 .discovery-list {
-  margin-top: 24rpx;
+  margin-top: 18rpx;
   border-top: 1rpx solid #e2e8f0;
 }
 
@@ -111,7 +185,7 @@
 
 .discovery-item {
   align-items: flex-start;
-  padding: 18rpx 0;
+  padding: 14rpx 0;
   border-top: 1rpx solid #eef2f7;
 }
 
@@ -121,9 +195,14 @@
 }
 
 .latency-row {
-  margin-top: 12rpx;
+  margin-top: 0;
   font-size: 24rpx;
   color: #64748b;
+  flex-shrink: 0;
+}
+
+.model-scroll {
+  max-height: 520rpx;
 }
 
 .latency-green {
