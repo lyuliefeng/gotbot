@@ -1,5 +1,6 @@
 const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
+const { expandModelProfiles } = require('../../utils/models')
 
 const protocolOptions = ['openai-images', 'openai-image-edits', 'dashscope-wanxiang', 'multimodal-chat', 'mgtv-storyboard', 'agnes-image']
 const keyModeOptions = ['user', 'platform']
@@ -23,11 +24,22 @@ function emptyDraft() {
 }
 
 function decorateModel(model) {
+  const availableCount = Array.isArray(model.availableModels) ? model.availableModels.length : 0
+  const selectedCount = Array.isArray(model.selectedModels) ? model.selectedModels.length : 0
   return {
     ...model,
     keyModeLabel: model.keyMode === 'platform' ? '平台 Key' : '用户 Key',
-    summary: `${model.apiProtocol} · ${model.keyMode === 'platform' ? '平台 Key' : '用户 Key'}`,
+    summary: `${model.apiProtocol} · ${model.keyMode === 'platform' ? '平台 Key' : '用户 Key'}${availableCount ? ` · 已识别 ${selectedCount || availableCount}/${availableCount}` : ''}`,
   }
+}
+
+function decorateDraft(draft) {
+  const selected = new Set(draft.selectedModels || [])
+  return (draft.availableModels || []).map((model) => ({
+    ...model,
+    checked: selected.has(model.id) || selected.has(model.name),
+    checkedText: selected.has(model.id) || selected.has(model.name) ? '已启用' : '未启用',
+  }))
 }
 
 Page({
@@ -39,6 +51,7 @@ Page({
     protocolIndex: 0,
     keyModeIndex: 0,
     showUserKeyFields: true,
+    discoveredModels: [],
     notice: '',
     error: '',
   },
@@ -50,7 +63,8 @@ Page({
       if (models && models.length) {
         const next = loadState()
         next.models = models
-        next.defaultModelId = models.find((model) => model.isPrimary)?.id || models[0].id
+        const expanded = expandModelProfiles(models)
+        next.defaultModelId = expanded.find((model) => model.isPrimary)?.id || expanded[0]?.id || models[0].id
         saveState(next)
         this.setData({ models: models.map(decorateModel) })
       }
@@ -80,6 +94,7 @@ Page({
       protocolIndex: Math.max(0, protocolOptions.indexOf(model.apiProtocol)),
       keyModeIndex: Math.max(0, keyModeOptions.indexOf(model.keyMode)),
       showUserKeyFields: model.keyMode === 'user',
+      discoveredModels: decorateDraft(model),
     })
   },
 
@@ -92,9 +107,10 @@ Page({
       if (index >= 0) models[index] = saved
       else models.push(saved)
       state.models = models
-      state.defaultModelId = state.defaultModelId || saved.id
+      const expanded = expandModelProfiles(models)
+      state.defaultModelId = state.defaultModelId || expanded[0]?.id || saved.id
       saveState(state)
-      this.setData({ models: models.map(decorateModel), draft: emptyDraft(), showUserKeyFields: true, notice: '模型配置已保存', error: '' })
+      this.setData({ models: models.map(decorateModel), draft: emptyDraft(), discoveredModels: [], showUserKeyFields: true, notice: '模型配置已保存', error: '' })
     } catch (error) {
       this.setData({ error: error.message || '保存失败' })
     }
@@ -107,6 +123,51 @@ Page({
     } catch (error) {
       this.setData({ error: error.message || '检测失败' })
     }
+  },
+
+  async discoverModels() {
+    try {
+      this.setData({ notice: '正在识别模型...', error: '' })
+      const saved = await callFunction('modelProfiles', { action: 'discover', profile: this.data.draft })
+      const state = loadState()
+      const models = state.models || []
+      const index = models.findIndex((model) => model.id === saved.id)
+      if (index >= 0) models[index] = saved
+      else models.push(saved)
+      const expanded = expandModelProfiles(models)
+      state.models = models
+      state.defaultModelId = expanded[0]?.id || saved.id
+      saveState(state)
+      this.setData({
+        models: models.map(decorateModel),
+        draft: saved,
+        discoveredModels: decorateDraft(saved),
+        showUserKeyFields: saved.keyMode === 'user',
+        notice: `已识别 ${saved.availableModels?.length || 0} 个模型`,
+        error: '',
+      })
+    } catch (error) {
+      this.setData({ error: error.message || '识别模型失败', notice: '' })
+    }
+  },
+
+  toggleDiscoveredModel(event) {
+    const modelId = event.currentTarget.dataset.id
+    const draft = this.data.draft
+    const selected = new Set(draft.selectedModels || [])
+    if (selected.has(modelId)) selected.delete(modelId)
+    else selected.add(modelId)
+    const nextDraft = { ...draft, selectedModels: Array.from(selected) }
+    this.setData({ draft: nextDraft, discoveredModels: decorateDraft(nextDraft) })
+  },
+
+  setDefaultDiscoveredModel(event) {
+    const modelId = event.currentTarget.dataset.id
+    const profileId = this.data.draft.id
+    const state = loadState()
+    state.defaultModelId = `${profileId}-${modelId}`
+    saveState(state)
+    this.setData({ notice: '默认模型已更新', error: '' })
   },
 
   async remove(event) {

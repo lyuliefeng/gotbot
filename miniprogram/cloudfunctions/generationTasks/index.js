@@ -11,6 +11,25 @@ function hydrateProfile(profile) {
   }
 }
 
+function resolveModelProfile(profiles, modelId) {
+  const direct = profiles.find((item) => item.id === modelId)
+  if (direct) return direct
+  for (const profile of profiles) {
+    const available = Array.isArray(profile.availableModels) ? profile.availableModels : []
+    const matched = available.find((model) => `${profile.id}-${model.id || model.name}` === modelId || model.id === modelId)
+    if (matched) {
+      return {
+        ...profile,
+        id: modelId,
+        parentModelProfileId: profile.id,
+        name: matched.name || matched.id,
+        model: matched.id || matched.name,
+      }
+    }
+  }
+  return null
+}
+
 exports.main = async function main(event = {}, context = {}) {
   try {
     const openid = context.OPENID || event.openid || 'mock-openid'
@@ -21,7 +40,7 @@ exports.main = async function main(event = {}, context = {}) {
 
     if (event.action === 'create') {
       const profiles = await list('modelProfiles', (item) => item.openid === openid)
-      const model = hydrateProfile(profiles.find((item) => item.id === event.input.modelId) || {
+      const model = hydrateProfile(resolveModelProfile(profiles, event.input.modelId) || {
         id: 'platform-agnes-image',
         name: '平台 Agnes Image',
         endpoint: 'https://apihub.agnes-ai.com/v1',

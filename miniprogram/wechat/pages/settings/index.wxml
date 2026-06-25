@@ -12,10 +12,25 @@
     <view wx:if="{{showUserKeyFields}}" class="field"><view class="label">Secret Key</view><input class="input" password value="{{draft.apiSecret}}" data-field="apiSecret" bindinput="onInput" /></view>
     <view class="actions">
       <button class="button-primary" bindtap="save">保存模型</button>
+      <button class="button-soft" bindtap="discoverModels">识别模型</button>
       <button class="button-soft" bindtap="testModel">检测连接</button>
     </view>
     <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
     <view wx:if="{{error}}" class="danger-text">{{error}}</view>
+
+    <view wx:if="{{discoveredModels.length}}" class="discovery-list">
+      <view class="subhead">识别结果</view>
+      <view wx:for="{{discoveredModels}}" wx:key="id" class="discovery-item">
+        <view class="discovery-meta">
+          <view class="discovery-name">{{item.name}}</view>
+          <view class="muted">{{item.model}}</view>
+        </view>
+        <view class="actions">
+          <button class="button-soft" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">{{item.checkedText}}</button>
+          <button class="button-soft" data-id="{{item.id}}" bindtap="setDefaultDiscoveredModel">设为默认</button>
+        </view>
+      </view>
+    </view>
   </view>
 
   <view class="section">

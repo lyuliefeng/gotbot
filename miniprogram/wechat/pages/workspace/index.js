@@ -3,6 +3,7 @@ const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
 const { validateGenerationInput } = require('../../utils/validators')
 const { resolveAssetUrls } = require('../../utils/assets')
+const { expandModelProfiles } = require('../../utils/models')
 
 Page({
   data: {
@@ -33,7 +34,7 @@ Page({
 
   onShow() {
     const state = loadState()
-    const models = state.models || []
+    const models = expandModelProfiles(state.models || [])
     const modelIndex = Math.max(0, models.findIndex((model) => model.id === state.defaultModelId))
     const selectedModel = models[modelIndex]
     this.setData({

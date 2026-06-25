@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict')
+const http = require('node:http')
 const path = require('node:path')
 
 const cloudRoot = path.resolve(__dirname, '../../cloudfunctions')
@@ -10,6 +11,24 @@ async function invoke(name, event) {
   const result = await mod.main(event, context)
   assert.equal(result.ok, true, `${name} failed: ${result.error || 'unknown error'}`)
   return result.data
+}
+
+function startModelListServer() {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ data: [{ id: 'mock-image-model', name: 'Mock Image Model' }] }))
+      return
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'not found' }))
+  })
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      resolve({ server, endpoint: `http://127.0.0.1:${address.port}` })
+    })
+  })
 }
 
 async function main() {
@@ -40,6 +59,23 @@ async function main() {
 
   const testResult = await invoke('modelProfiles', { action: 'test', profile: savedModel })
   assert.equal(typeof testResult.message, 'string')
+
+  const { server, endpoint } = await startModelListServer()
+  try {
+    const discovered = await invoke('modelProfiles', {
+      action: 'discover',
+      profile: {
+        ...savedModel,
+        endpoint,
+        keyMode: 'platform',
+      },
+    })
+    assert.equal(discovered.sourceType, 'api-switch-discovery')
+    assert.equal(discovered.availableModels[0].id, 'mock-image-model')
+    assert.deepEqual(discovered.selectedModels, ['mock-image-model'])
+  } finally {
+    server.close()
+  }
 
   if (!process.env.PLATFORM_IMAGE_API_KEY) {
     const generationMod = require(path.join(cloudRoot, 'generationTasks', 'index.js'))
