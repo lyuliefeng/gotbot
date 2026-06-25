@@ -53,6 +53,9 @@ async function main() {
   })
   assert.equal(savedModel.id, 'smoke-model')
   assert.equal(savedModel.apiKey, '')
+  assert.equal(savedModel.api_type, 'openai')
+  assert.equal(savedModel.base_url, 'https://apihub.agnes-ai.com/v1')
+  assert.equal(savedModel.enabled, true)
 
   const models = await invoke('modelProfiles', { action: 'list' })
   assert.ok(models.some((model) => model.id === 'smoke-model'))
@@ -60,6 +63,34 @@ async function main() {
   let core = await invoke('modelProfiles', { action: 'core' })
   assert.ok(core.channels.some((channel) => channel.id === 'channel-smoke-model'))
   assert.ok(core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-model' && entry.model === 'agnes-image-2.1-flash'))
+
+  const savedChannel = await invoke('modelProfiles', {
+    action: 'save',
+    profile: {
+      id: 'smoke-channel',
+      name: 'Smoke Channel',
+      api_type: 'custom',
+      base_url: 'https://example.com/v1',
+      apiKey: 'mock-key',
+      keyMode: 'user',
+      enabled: false,
+      notes: 'channel notes',
+      upstream_headers: '{"X-Test":"1"}',
+      available_models: [{ id: 'entry-a', name: 'Entry A' }, { id: 'entry-b', name: 'Entry B' }],
+      selected_models: ['entry-b'],
+    },
+  })
+  assert.equal(savedChannel.api_type, 'custom')
+  assert.equal(savedChannel.base_url, 'https://example.com/v1')
+  assert.equal(savedChannel.enabled, false)
+  core = await invoke('modelProfiles', { action: 'core' })
+  const coreChannel = core.channels.find((channel) => channel.id === 'channel-smoke-channel')
+  assert.equal(coreChannel.enabled, false)
+  assert.equal(coreChannel.notes, 'channel notes')
+  assert.equal(coreChannel.upstream_headers, '{"X-Test":"1"}')
+  assert.ok(core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-channel' && entry.model === 'entry-b'))
+  assert.ok(!core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-channel' && entry.model === 'entry-a'))
+  await invoke('modelProfiles', { action: 'delete', id: 'smoke-channel' })
 
   const testResult = await invoke('modelProfiles', { action: 'test', profile: savedModel })
   assert.equal(typeof testResult.message, 'string')
@@ -72,6 +103,7 @@ async function main() {
       action: 'discover',
       profile: {
         ...savedModel,
+        base_url: endpoint,
         endpoint,
         keyMode: 'platform',
       },

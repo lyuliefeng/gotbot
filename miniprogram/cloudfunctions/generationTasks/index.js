@@ -12,12 +12,23 @@ function hydrateProfile(profile) {
 }
 
 function resolveModelProfile(profiles, modelId) {
-  const direct = profiles.find((item) => item.id === modelId)
+  const enabledProfiles = profiles.filter((item) => item.enabled !== false)
+  const direct = enabledProfiles.find((item) => item.id === modelId)
   if (direct) return direct
-  for (const profile of profiles) {
-    const available = Array.isArray(profile.availableModels) ? profile.availableModels : []
+  for (const profile of enabledProfiles) {
+    const available = Array.isArray(profile.availableModels)
+      ? profile.availableModels
+      : Array.isArray(profile.available_models)
+        ? profile.available_models
+        : []
+    const selected = Array.isArray(profile.selectedModels) && profile.selectedModels.length
+      ? profile.selectedModels
+      : Array.isArray(profile.selected_models) && profile.selected_models.length
+        ? profile.selected_models
+        : available.map((model) => model.id || model.name).filter(Boolean)
+    const selectedSet = new Set(selected)
     const matched = available.find((model) => `${profile.id}-${model.id || model.name}` === modelId || model.id === modelId)
-    if (matched) {
+    if (matched && (selectedSet.has(matched.id) || selectedSet.has(matched.name))) {
       return {
         ...profile,
         id: modelId,

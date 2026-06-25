@@ -10,6 +10,48 @@ function sanitizeProfile(profile) {
   return { ...rest, apiKey: '', apiSecret: '' }
 }
 
+function profileApiType(profile) {
+  return profile.api_type || profile.apiType || toApiSwitchType(profile)
+}
+
+function profileBaseUrl(profile) {
+  return profile.base_url || profile.baseUrl || profile.endpoint || ''
+}
+
+function profileAvailableModels(profile) {
+  return profile.available_models || profile.availableModels || []
+}
+
+function profileSelectedModels(profile) {
+  return profile.selected_models || profile.selectedModels || []
+}
+
+function normalizeProfile(profile) {
+  const apiType = profileApiType(profile)
+  const baseUrl = profileBaseUrl(profile)
+  const availableModels = profileAvailableModels(profile)
+  const selectedModels = profileSelectedModels(profile)
+  const primaryModel = profile.model || selectedModels[0] || availableModels[0]?.id || availableModels[0]?.name || ''
+  return {
+    ...profile,
+    api_type: apiType,
+    apiType,
+    base_url: baseUrl,
+    baseUrl,
+    endpoint: baseUrl,
+    available_models: availableModels,
+    availableModels,
+    selected_models: selectedModels,
+    selectedModels,
+    response_ms: profile.response_ms || (Number.isFinite(profile.latencyMs) ? String(profile.latencyMs) : ''),
+    enabled: profile.enabled !== false,
+    apiProtocol: profile.apiProtocol || (apiType === 'responses' ? 'multimodal-chat' : 'agnes-image'),
+    apiPath: profile.apiPath || (apiType === 'responses' ? 'responses' : 'images/generations'),
+    kind: profile.kind || 'image',
+    model: primaryModel,
+  }
+}
+
 function toApiSwitchType(profile) {
   if (profile.apiProtocol === 'agnes-image') return 'openai'
   if (profile.apiProtocol === 'multimodal-chat') return 'openai'
@@ -21,34 +63,37 @@ function toApiSwitchType(profile) {
 }
 
 function buildApiSwitchCore(profile, openid) {
+  const normalized = normalizeProfile(profile)
   const now = new Date().toISOString()
-  const availableModels = Array.isArray(profile.availableModels) && profile.availableModels.length
-    ? profile.availableModels
-    : [{ id: profile.model, name: profile.model, kind: profile.kind || 'image', source: profile.endpoint }].filter((item) => item.id)
-  const selectedModels = Array.isArray(profile.selectedModels) && profile.selectedModels.length
-    ? profile.selectedModels
+  const availableModels = Array.isArray(normalized.availableModels) && normalized.availableModels.length
+    ? normalized.availableModels
+    : [{ id: normalized.model, name: normalized.model, kind: normalized.kind || 'image', source: normalized.endpoint }].filter((item) => item.id)
+  const selectedModels = Array.isArray(normalized.selectedModels) && normalized.selectedModels.length
+    ? normalized.selectedModels
     : availableModels.map((model) => model.id || model.name).filter(Boolean)
   const selectedSet = new Set(selectedModels)
-  const channelId = `channel-${profile.id}`
+  const channelId = `channel-${normalized.id}`
   const channel = {
     id: channelId,
     openid,
-    name: profile.name,
-    api_type: toApiSwitchType(profile),
-    base_url: profile.endpoint,
-    api_path: profile.apiPath || '',
-    api_protocol: profile.apiProtocol || '',
-    key_mode: profile.keyMode,
-    enabled: true,
+    name: normalized.name,
+    api_type: normalized.api_type,
+    base_url: normalized.base_url,
+    api_key: '',
+    key_mode: normalized.keyMode,
+    enabled: normalized.enabled,
     available_models: availableModels,
     selected_models: selectedModels,
-    latency_ms: profile.latencyMs || null,
-    latency_level: profile.latencyLevel || '',
-    last_fetch_at: profile.lastFetchedAt || null,
+    last_fetch_at: normalized.lastFetchedAt || normalized.last_fetch_at || null,
+    notes: normalized.notes || '',
+    upstream_headers: normalized.upstream_headers || normalized.upstreamHeaders || '',
+    response_ms: normalized.response_ms || '',
+    latency_ms: normalized.latencyMs || null,
+    latency_level: normalized.latencyLevel || '',
     updated_at: now,
   }
   const apiEntries = availableModels.filter((model) => selectedSet.has(model.id) || selectedSet.has(model.name)).map((model, index) => ({
-    id: `entry-${profile.id}-${model.id || model.name}`,
+    id: `entry-${normalized.id}-${model.id || model.name}`,
     openid,
     channel_id: channelId,
     model: model.id || model.name,
@@ -56,9 +101,9 @@ function buildApiSwitchCore(profile, openid) {
     group_name: 'auto',
     enabled: true,
     sort_index: index,
-    kind: model.kind || profile.kind || 'image',
-    source: model.source || profile.endpoint,
-    response_ms: profile.latencyMs || null,
+    kind: model.kind || normalized.kind || 'image',
+    source: model.source || normalized.endpoint,
+    response_ms: normalized.response_ms || (normalized.latencyMs ? String(normalized.latencyMs) : null),
     updated_at: now,
   }))
   return { channel, apiEntries }
@@ -115,6 +160,26 @@ function buildDiscoveryUrls(baseUrl) {
   return urls
 }
 
+function buildApiTypeDiscoveryUrls(baseUrl, apiType) {
+  const root = String(baseUrl || '').replace(/\/+$/, '')
+  const urls = []
+  const push = (value) => {
+    if (value && !urls.includes(value)) urls.push(value)
+  }
+  if (apiType === 'gemini') {
+    push(`${root}/v1beta/openai/models`)
+    push(`${root}/v1beta/models`)
+  } else if (apiType === 'claude') {
+    push(`${root}/v1/models`)
+    push(`${root}/anthropic/v1/models`)
+  } else if (apiType === 'azure') {
+    push(`${root}/openai/models`)
+  } else {
+    buildDiscoveryUrls(root).forEach(push)
+  }
+  return urls
+}
+
 function classifyLatency(latencyMs) {
   if (latencyMs < 200) return 'green'
   if (latencyMs <= 500) return 'yellow'
@@ -153,16 +218,17 @@ function normalizeDiscoveredModels(data, endpointUrl) {
 }
 
 async function discoverModels(profile) {
+  const normalized = normalizeProfile(profile)
   const hydrated = {
-    ...profile,
-    apiKey: profile.keyMode === 'user' ? profile.apiKey || decryptText(profile.encryptedApiKey || '') : process.env.PLATFORM_IMAGE_API_KEY || '',
-    apiSecret: profile.keyMode === 'user' ? profile.apiSecret || decryptText(profile.encryptedApiSecret || '') : process.env.PLATFORM_IMAGE_API_SECRET || '',
+    ...normalized,
+    apiKey: normalized.keyMode === 'user' ? normalized.apiKey || decryptText(normalized.encryptedApiKey || '') : process.env.PLATFORM_IMAGE_API_KEY || '',
+    apiSecret: normalized.keyMode === 'user' ? normalized.apiSecret || decryptText(normalized.encryptedApiSecret || '') : process.env.PLATFORM_IMAGE_API_SECRET || '',
   }
 
   if (!hydrated.endpoint?.trim()) throw new Error('请填写 Base URL')
   if (hydrated.keyMode === 'user' && !hydrated.apiKey?.trim()) throw new Error('请填写 API Key')
 
-  const candidates = buildDiscoveryUrls(hydrated.endpoint)
+  const candidates = buildApiTypeDiscoveryUrls(hydrated.endpoint, hydrated.api_type)
   const errors = []
   for (const url of candidates) {
     const startedAt = Date.now()
@@ -172,13 +238,17 @@ async function discoverModels(profile) {
       if (result.statusCode >= 200 && result.statusCode < 300) {
         const availableModels = normalizeDiscoveredModels(result.data, url)
         if (availableModels.length) {
+          const selectedModels = availableModels.map((model) => model.id)
           return {
             availableModels,
-            selectedModels: availableModels.map((model) => model.id),
+            available_models: availableModels,
+            selectedModels,
+            selected_models: selectedModels,
             sourceType: 'api-switch-discovery',
             lastFetchedAt: new Date().toISOString(),
             latencyMs,
             latencyLevel: classifyLatency(latencyMs),
+            response_ms: String(latencyMs),
             status: 'connected',
             discoveredFrom: url,
           }
@@ -204,7 +274,7 @@ exports.main = async function main(event = {}, context = {}) {
     }
 
     if (event.action === 'save') {
-      const profile = event.profile || {}
+      const profile = normalizeProfile(event.profile || {})
       const id = profile.id || `model-${Date.now()}`
       const saved = await upsert('modelProfiles', (item) => item.id === id && item.openid === openid, {
         ...profile,
@@ -221,7 +291,7 @@ exports.main = async function main(event = {}, context = {}) {
     }
 
     if (event.action === 'discover') {
-      const profile = event.profile || {}
+      const profile = normalizeProfile(event.profile || {})
       const id = profile.id || `model-${Date.now()}`
       const discovery = await discoverModels(profile)
       const saved = await upsert('modelProfiles', (item) => item.id === id && item.openid === openid, {
@@ -252,13 +322,13 @@ exports.main = async function main(event = {}, context = {}) {
     }
 
     if (event.action === 'test') {
-      const profile = event.profile || {}
+      const profile = normalizeProfile(event.profile || {})
       const hydrated = {
         ...profile,
         apiKey: profile.keyMode === 'user' ? profile.apiKey || decryptText(profile.encryptedApiKey || '') : process.env.PLATFORM_IMAGE_API_KEY || '',
         apiSecret: profile.keyMode === 'user' ? profile.apiSecret || decryptText(profile.encryptedApiSecret || '') : process.env.PLATFORM_IMAGE_API_SECRET || '',
       }
-      const discoveryUrls = buildDiscoveryUrls(hydrated.endpoint)
+      const discoveryUrls = buildApiTypeDiscoveryUrls(hydrated.endpoint, hydrated.api_type)
       const startedAt = Date.now()
       const response = await requestJson(discoveryUrls[0], { method: 'GET', headers: buildHeaders(hydrated) }).catch(() => null)
       if (response && response.statusCode >= 200 && response.statusCode < 500) {

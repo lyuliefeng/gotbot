@@ -2,16 +2,38 @@ const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
 const { expandModelProfiles } = require('../../utils/models')
 
-const protocolOptions = ['openai-images', 'openai-image-edits', 'dashscope-wanxiang', 'multimodal-chat', 'mgtv-storyboard', 'agnes-image']
+const apiTypeOptions = ['custom', 'openai', 'claude', 'gemini', 'azure', 'responses']
+const apiTypeLabels = ['Custom (OpenAI-compatible)', 'OpenAI', 'Anthropic', 'Google Gemini', 'Azure OpenAI', 'OpenAI Responses']
 const keyModeOptions = ['user', 'platform']
+
+function defaultUrlForApiType(apiType) {
+  if (apiType === 'openai' || apiType === 'responses') return 'https://api.openai.com'
+  if (apiType === 'claude') return 'https://api.anthropic.com'
+  if (apiType === 'gemini') return 'https://generativelanguage.googleapis.com'
+  return ''
+}
+
+function protocolForApiType(apiType) {
+  if (apiType === 'responses') return 'multimodal-chat'
+  return 'agnes-image'
+}
+
+function apiPathForApiType(apiType) {
+  if (apiType === 'responses') return 'responses'
+  return 'images/generations'
+}
 
 function emptyDraft() {
   return {
     id: '',
-    name: '我的 Agnes 图像模型',
+    name: 'Agnes 图像渠道',
     provider: 'openai-compatible',
+    api_type: 'custom',
+    apiType: 'custom',
+    base_url: 'https://apihub.agnes-ai.com/v1',
+    baseUrl: 'https://apihub.agnes-ai.com/v1',
     endpoint: 'https://apihub.agnes-ai.com/v1',
-    apiPath: 'images/generations',
+    apiPath: apiPathForApiType('custom'),
     apiProtocol: 'agnes-image',
     apiKey: '',
     apiSecret: '',
@@ -19,26 +41,52 @@ function emptyDraft() {
     kind: 'image',
     keyMode: 'platform',
     isPrimary: false,
+    enabled: true,
+    notes: '',
+    upstream_headers: '',
     status: 'untested',
   }
 }
 
-function decorateDraftMetrics(draft) {
+function normalizeDraft(draft) {
+  const apiType = draft.api_type || draft.apiType || 'custom'
+  const baseUrl = draft.base_url || draft.baseUrl || draft.endpoint || ''
   return {
     ...draft,
-    latencyClass: draft.latencyLevel ? `latency-${draft.latencyLevel}` : '',
+    api_type: apiType,
+    apiType,
+    base_url: baseUrl,
+    baseUrl,
+    endpoint: baseUrl,
+    apiProtocol: draft.apiProtocol || protocolForApiType(apiType),
+    apiPath: draft.apiPath || apiPathForApiType(apiType),
+    enabled: draft.enabled !== false,
+    response_ms: draft.response_ms || (Number.isFinite(draft.latencyMs) ? String(draft.latencyMs) : ''),
+  }
+}
+
+function decorateDraftMetrics(draft) {
+  const next = normalizeDraft(draft)
+  return {
+    ...next,
+    enabledText: next.enabled ? '已启用' : '已停用',
+    latencyClass: next.latencyLevel ? `latency-${next.latencyLevel}` : '',
   }
 }
 
 function decorateModel(model) {
-  const availableCount = Array.isArray(model.availableModels) ? model.availableModels.length : 0
-  const selectedCount = Array.isArray(model.selectedModels) ? model.selectedModels.length : 0
+  const channel = normalizeDraft(model)
+  const availableCount = Array.isArray(channel.availableModels) ? channel.availableModels.length : 0
+  const selectedCount = Array.isArray(channel.selectedModels) ? channel.selectedModels.length : 0
   const latencyText = Number.isFinite(model.latencyMs) ? ` · ${model.latencyMs}ms` : ''
   return {
-    ...model,
-    keyModeLabel: model.keyMode === 'platform' ? '平台 Key' : '用户 Key',
-    summary: `${model.apiProtocol} · ${model.keyMode === 'platform' ? '平台 Key' : '用户 Key'}${availableCount ? ` · 已识别 ${selectedCount || availableCount}/${availableCount}` : ''}${latencyText}`,
-    latencyBadgeClass: model.latencyLevel ? `latency-${model.latencyLevel}` : '',
+    ...channel,
+    keyModeLabel: channel.keyMode === 'platform' ? '平台 Key' : '用户 Key',
+    apiTypeLabel: apiTypeLabels[Math.max(0, apiTypeOptions.indexOf(channel.api_type))],
+    enabledText: channel.enabled ? '已启用' : '已停用',
+    enabledClass: channel.enabled ? 'enabled' : 'disabled',
+    summary: `${channel.api_type} · ${channel.keyMode === 'platform' ? '平台 Key' : '用户 Key'}${availableCount ? ` · API ${selectedCount || availableCount}/${availableCount}` : ''}${latencyText}`,
+    latencyBadgeClass: channel.latencyLevel ? `latency-${channel.latencyLevel}` : '',
     latencyLabel: Number.isFinite(model.latencyMs) ? `${model.latencyMs}ms` : '未测速',
   }
 }
@@ -56,11 +104,12 @@ Page({
   data: {
     models: [],
     draft: decorateDraftMetrics(emptyDraft()),
-    protocolOptions,
+    apiTypeOptions,
+    apiTypeLabels,
     keyModeOptions,
-    protocolIndex: 0,
+    apiTypeIndex: 0,
     keyModeIndex: 0,
-    showUserKeyFields: true,
+    showUserKeyFields: false,
     discoveredModels: [],
     notice: '',
     error: '',
@@ -85,9 +134,25 @@ Page({
     this.setData({ [`draft.${event.currentTarget.dataset.field}`]: event.detail.value })
   },
 
-  onProtocolChange(event) {
+  onBaseUrlInput(event) {
+    this.setData({ 'draft.base_url': event.detail.value, 'draft.baseUrl': event.detail.value, 'draft.endpoint': event.detail.value })
+  },
+
+  onApiTypeChange(event) {
     const index = Number(event.detail.value)
-    this.setData({ protocolIndex: index, 'draft.apiProtocol': protocolOptions[index] })
+    const apiType = apiTypeOptions[index]
+    const currentBaseUrl = this.data.draft.base_url || this.data.draft.endpoint || ''
+    const nextBaseUrl = currentBaseUrl || defaultUrlForApiType(apiType)
+    this.setData({
+      apiTypeIndex: index,
+      'draft.api_type': apiType,
+      'draft.apiType': apiType,
+      'draft.base_url': nextBaseUrl,
+      'draft.baseUrl': nextBaseUrl,
+      'draft.endpoint': nextBaseUrl,
+      'draft.apiProtocol': protocolForApiType(apiType),
+      'draft.apiPath': apiPathForApiType(apiType),
+    })
   },
 
   onKeyModeChange(event) {
@@ -96,21 +161,27 @@ Page({
     this.setData({ keyModeIndex: index, 'draft.keyMode': keyMode, showUserKeyFields: keyMode === 'user' })
   },
 
+  onEnabledChange(event) {
+    const enabled = Boolean(event.detail.value)
+    this.setData({ 'draft.enabled': enabled, 'draft.enabledText': enabled ? '已启用' : '已停用' })
+  },
+
   edit(event) {
     const model = this.data.models.find((item) => item.id === event.currentTarget.dataset.id)
     if (!model) return
+    const draft = decorateDraftMetrics({ ...model, apiKey: '', apiSecret: '' })
     this.setData({
-      draft: decorateDraftMetrics({ ...model, apiKey: '', apiSecret: '' }),
-      protocolIndex: Math.max(0, protocolOptions.indexOf(model.apiProtocol)),
-      keyModeIndex: Math.max(0, keyModeOptions.indexOf(model.keyMode)),
-      showUserKeyFields: model.keyMode === 'user',
-      discoveredModels: decorateDraft(model),
+      draft,
+      apiTypeIndex: Math.max(0, apiTypeOptions.indexOf(draft.api_type)),
+      keyModeIndex: Math.max(0, keyModeOptions.indexOf(draft.keyMode)),
+      showUserKeyFields: draft.keyMode === 'user',
+      discoveredModels: decorateDraft(draft),
     })
   },
 
   async save() {
     try {
-      const saved = await callFunction('modelProfiles', { action: 'save', profile: this.data.draft })
+      const saved = await callFunction('modelProfiles', { action: 'save', profile: normalizeDraft(this.data.draft) })
       const state = loadState()
       const models = state.models || []
       const index = models.findIndex((model) => model.id === saved.id)
@@ -120,7 +191,7 @@ Page({
       const expanded = expandModelProfiles(models)
       state.defaultModelId = state.defaultModelId || expanded[0]?.id || saved.id
       saveState(state)
-      this.setData({ models: models.map(decorateModel), draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], showUserKeyFields: true, notice: '模型配置已保存', error: '' })
+      this.setData({ models: models.map(decorateModel), draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], showUserKeyFields: false, apiTypeIndex: 0, keyModeIndex: 0, notice: '渠道已保存并同步 API 池', error: '' })
     } catch (error) {
       this.setData({ error: error.message || '保存失败' })
     }
@@ -128,8 +199,8 @@ Page({
 
   async testModel() {
     try {
-      const result = await callFunction('modelProfiles', { action: 'test', profile: this.data.draft })
-      const nextDraft = decorateDraftMetrics({ ...this.data.draft, latencyMs: result.latencyMs, latencyLevel: result.latencyLevel, lastCheckedAt: new Date().toISOString(), status: result.ok ? 'connected' : 'failed' })
+      const result = await callFunction('modelProfiles', { action: 'test', profile: normalizeDraft(this.data.draft) })
+      const nextDraft = decorateDraftMetrics({ ...this.data.draft, latencyMs: result.latencyMs, latencyLevel: result.latencyLevel, response_ms: String(result.latencyMs || ''), lastCheckedAt: new Date().toISOString(), status: result.ok ? 'connected' : 'failed' })
       this.setData({ draft: nextDraft, notice: result.message, error: '' })
     } catch (error) {
       this.setData({ error: error.message || '检测失败' })
@@ -138,8 +209,8 @@ Page({
 
   async discoverModels() {
     try {
-      this.setData({ notice: '正在识别模型...', error: '' })
-      const saved = await callFunction('modelProfiles', { action: 'discover', profile: this.data.draft })
+      this.setData({ notice: '正在拉取渠道模型...', error: '' })
+      const saved = await callFunction('modelProfiles', { action: 'discover', profile: normalizeDraft(this.data.draft) })
       const state = loadState()
       const models = state.models || []
       const index = models.findIndex((model) => model.id === saved.id)
@@ -154,11 +225,11 @@ Page({
         draft: decorateDraftMetrics(saved),
         discoveredModels: decorateDraft(saved),
         showUserKeyFields: saved.keyMode === 'user',
-        notice: `已识别 ${saved.availableModels?.length || 0} 个模型`,
+        notice: `已拉取 ${saved.availableModels?.length || 0} 个模型并同步 API 池`,
         error: '',
       })
     } catch (error) {
-      this.setData({ error: error.message || '识别模型失败', notice: '' })
+      this.setData({ error: error.message || '拉取模型失败', notice: '' })
     }
   },
 
@@ -168,7 +239,8 @@ Page({
     const selected = new Set(draft.selectedModels || [])
     if (selected.has(modelId)) selected.delete(modelId)
     else selected.add(modelId)
-    const nextDraft = decorateDraftMetrics({ ...draft, selectedModels: Array.from(selected) })
+    const selectedModels = Array.from(selected)
+    const nextDraft = decorateDraftMetrics({ ...draft, selectedModels, selected_models: selectedModels })
     this.setData({ draft: nextDraft, discoveredModels: decorateDraft(nextDraft) })
   },
 
