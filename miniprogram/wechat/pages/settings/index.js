@@ -140,6 +140,7 @@ function decorateDiscoveredModels(draft) {
   const selected = new Set(selectedModelsOf(draft))
   return availableModelsOf(draft).map((model) => ({
     ...model,
+    rowClass: selected.has(model.id) || selected.has(model.name) ? 'selected' : '',
     checked: selected.has(model.id) || selected.has(model.name),
     checkedText: selected.has(model.id) || selected.has(model.name) ? '已启用' : '未启用',
   }))
@@ -157,6 +158,9 @@ Page({
     apiKindIndex: 1,
     currentApiKindLabel: apiKindLabels[1],
     discoveredModels: [],
+    discoveredModelCount: 0,
+    selectedModelCount: 0,
+    showModelModal: false,
     notice: '',
     error: '',
   },
@@ -180,6 +184,8 @@ Page({
     this.setData({ [`draft.${event.currentTarget.dataset.field}`]: event.detail.value })
   },
 
+  noop() {},
+
   onBaseUrlInput(event) {
     this.setData({ 'draft.base_url': event.detail.value, 'draft.baseUrl': event.detail.value, 'draft.endpoint': event.detail.value })
   },
@@ -192,13 +198,16 @@ Page({
       apiKindIndex: 1,
       currentApiKindLabel: apiKindLabels[1],
       discoveredModels: [],
+      discoveredModelCount: 0,
+      selectedModelCount: 0,
+      showModelModal: false,
       notice: '',
       error: '',
     })
   },
 
   cancelEdit() {
-    this.setData({ showEditor: false, draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], notice: '', error: '' })
+    this.setData({ showEditor: false, showModelModal: false, draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], discoveredModelCount: 0, selectedModelCount: 0, notice: '', error: '' })
   },
 
   onApiKindChange(event) {
@@ -233,6 +242,9 @@ Page({
       apiKindIndex: Math.max(0, apiKindOptions.indexOf(draft.kind)),
       currentApiKindLabel: apiKindLabels[Math.max(0, apiKindOptions.indexOf(draft.kind))],
       discoveredModels: decorateDiscoveredModels(draft),
+      discoveredModelCount: availableModelsOf(draft).length,
+      selectedModelCount: selectedModelsOf(draft).length,
+      showModelModal: false,
       notice: '',
       error: '',
     })
@@ -250,7 +262,7 @@ Page({
       const expanded = expandModelProfiles(models)
       state.defaultModelId = state.defaultModelId || expanded[0]?.id || saved.id
       saveState(state)
-      this.setData({ ...pageModels(models), draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], showEditor: false, notice: '渠道已保存并同步 API 池', error: '' })
+      this.setData({ ...pageModels(models), draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], discoveredModelCount: 0, selectedModelCount: 0, showEditor: false, showModelModal: false, notice: '渠道已保存并同步 API 池', error: '' })
     } catch (error) {
       this.setData({ error: error.message || '保存失败' })
     }
@@ -283,7 +295,10 @@ Page({
         ...pageModels(models),
         draft: decorateDraftMetrics(saved),
         discoveredModels: decorateDiscoveredModels(saved),
+        discoveredModelCount: availableModelsOf(saved).length,
+        selectedModelCount: selectedModelsOf(saved).length,
         showEditor: true,
+        showModelModal: true,
         notice: `已获取 ${availableModelsOf(saved).length} 个模型并同步 API 池`,
         error: '',
       })
@@ -300,7 +315,16 @@ Page({
     else selected.add(modelId)
     const selectedModels = Array.from(selected)
     const nextDraft = decorateDraftMetrics({ ...draft, selectedModels, selected_models: selectedModels })
-    this.setData({ draft: nextDraft, discoveredModels: decorateDiscoveredModels(nextDraft) })
+    this.setData({ draft: nextDraft, discoveredModels: decorateDiscoveredModels(nextDraft), selectedModelCount: selectedModels.length })
+  },
+
+  openModelModal() {
+    if (!this.data.discoveredModels.length) return
+    this.setData({ showModelModal: true })
+  },
+
+  closeModelModal() {
+    this.setData({ showModelModal: false })
   },
 
   setDefaultDiscoveredModel(event) {

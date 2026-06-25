@@ -64,20 +64,40 @@
     <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
     <view wx:if="{{error}}" class="danger-text">{{error}}</view>
 
-    <view wx:if="{{discoveredModels.length}}" class="discovery-list">
-      <view class="subhead">模型列表</view>
-      <scroll-view class="model-scroll" scroll-y="true">
-        <view wx:for="{{discoveredModels}}" wx:key="id" class="discovery-item">
+    <view wx:if="{{discoveredModels.length}}" class="model-summary">
+      <view>
+        <view class="subhead compact-subhead">模型列表</view>
+        <view class="muted">已获取 {{discoveredModelCount}} 个，已启用 {{selectedModelCount}} 个</view>
+      </view>
+      <button class="button-soft compact" bindtap="openModelModal">选择模型</button>
+    </view>
+  </view>
+
+  <view wx:if="{{showModelModal}}" class="modal-mask" bindtap="closeModelModal">
+    <view class="model-dialog" catchtap="noop">
+      <view class="dialog-head">
+        <view>
+          <view class="dialog-title">选择模型</view>
+          <view class="muted">已获取 {{discoveredModelCount}} 个，已启用 {{selectedModelCount}} 个</view>
+        </view>
+        <button class="button-soft compact" bindtap="closeModelModal">关闭</button>
+      </view>
+      <scroll-view class="model-modal-scroll" scroll-y="true">
+        <view wx:for="{{discoveredModels}}" wx:key="id" class="model-option {{item.rowClass}}" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">
           <view class="discovery-meta">
             <view class="discovery-name">{{item.name}}</view>
             <view class="muted mono">{{item.id}}</view>
           </view>
-          <view class="actions inline-actions">
-            <button class="button-soft" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">{{item.checkedText}}</button>
-            <button class="button-soft" data-id="{{item.id}}" bindtap="setDefaultDiscoveredModel">默认</button>
+          <view class="model-option-side">
+            <view class="check-pill">{{item.checkedText}}</view>
+            <button class="button-soft mini" data-id="{{item.id}}" catchtap="setDefaultDiscoveredModel">默认</button>
           </view>
         </view>
       </scroll-view>
+      <view class="dialog-actions">
+        <button class="button-primary" bindtap="save">保存选择</button>
+        <button class="button-soft" bindtap="closeModelModal">完成</button>
+      </view>
     </view>
   </view>
 </view>
