@@ -85,10 +85,18 @@ async function main() {
   assert.equal(savedChannel.base_url, 'https://example.com/v1')
   assert.equal(savedChannel.kind, 'image')
   assert.equal(savedChannel.enabled, false)
+  const updatedChannel = await invoke('modelProfiles', {
+    action: 'save',
+    profile: {
+      ...savedChannel,
+      notes: 'updated channel notes',
+    },
+  })
+  assert.equal(updatedChannel.notes, 'updated channel notes')
   core = await invoke('modelProfiles', { action: 'core' })
   const coreChannel = core.channels.find((channel) => channel.id === 'channel-smoke-channel')
   assert.equal(coreChannel.enabled, false)
-  assert.equal(coreChannel.notes, 'channel notes')
+  assert.equal(coreChannel.notes, 'updated channel notes')
   assert.equal(coreChannel.upstream_headers, '{"X-Test":"1"}')
   assert.ok(core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-channel' && entry.model === 'entry-b'))
   assert.ok(!core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-channel' && entry.model === 'entry-a'))

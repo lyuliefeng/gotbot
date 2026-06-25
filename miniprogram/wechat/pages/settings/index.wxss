@@ -184,14 +184,34 @@
 }
 
 .discovery-item {
-  align-items: flex-start;
+  align-items: stretch;
+  flex-direction: column;
   padding: 14rpx 0;
   border-top: 1rpx solid #eef2f7;
 }
 
 .discovery-meta {
   min-width: 0;
+  width: 100%;
   flex: 1;
+}
+
+.discovery-name {
+  white-space: normal;
+  word-break: break-all;
+}
+
+.discovery-item .muted {
+  word-break: break-all;
+}
+
+.discovery-item .inline-actions {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.discovery-item .button-soft {
+  min-width: 180rpx;
 }
 
 .latency-row {
