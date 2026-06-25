@@ -1,51 +1,17 @@
 <view class="page">
   <view class="section">
-    <view class="title">渠道管理</view>
-    <view class="subtitle">按 API-Switch 渠道管理配置上游：渠道保存后会同步 API 池，工作台从已启用 API 中选择模型。</view>
-    <view class="field"><view class="label">渠道名称</view><input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" /></view>
-    <view class="field"><view class="label">渠道类型</view><picker mode="selector" range="{{apiTypeLabels}}" value="{{apiTypeIndex}}" bindchange="onApiTypeChange"><view class="picker-box">{{draft.api_type}}</view></picker></view>
-    <view class="field"><view class="label">Base URL</view><input class="input mono" value="{{draft.base_url}}" bindinput="onBaseUrlInput" /></view>
-    <view class="field"><view class="label">Key 模式</view><picker mode="selector" range="{{keyModeOptions}}" value="{{keyModeIndex}}" bindchange="onKeyModeChange"><view class="picker-box">{{draft.keyMode}}</view></picker></view>
-    <view wx:if="{{showUserKeyFields}}" class="field"><view class="label">API Key</view><textarea class="textarea mono" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="每行一个 API Key；首版保存为当前渠道 Key" /></view>
-    <view wx:if="{{showUserKeyFields}}" class="field"><view class="label">Secret Key</view><input class="input mono" password value="{{draft.apiSecret}}" data-field="apiSecret" bindinput="onInput" /></view>
-    <view class="field"><view class="label">Header 注入 JSON</view><textarea class="textarea mono" value="{{draft.upstream_headers}}" data-field="upstream_headers" bindinput="onInput" placeholder='例如 {"X-Client":"gotbot"}' /></view>
-    <view class="field"><view class="label">备注</view><textarea class="textarea" value="{{draft.notes}}" data-field="notes" bindinput="onInput" /></view>
-    <view class="switch-row">
+    <view class="channel-list-head">
       <view>
-        <view class="label inline-label">渠道状态</view>
-        <view class="muted">{{draft.enabledText}}</view>
+        <view class="title">渠道管理</view>
+        <view class="subtitle">渠道是上游 API 供应商。一个渠道可以拉取多个模型，保存后同步到 API 池。</view>
       </view>
-      <switch checked="{{draft.enabled}}" bindchange="onEnabledChange" />
+      <button class="button-primary compact" bindtap="openAddChannel">添加渠道</button>
     </view>
-    <view class="actions">
-      <button class="button-primary" bindtap="save">保存渠道</button>
-      <button class="button-soft" bindtap="discoverModels">拉取模型</button>
-      <button class="button-soft" bindtap="testModel">URL 测速</button>
-    </view>
-    <view wx:if="{{draft.latencyMs}}" class="latency-row {{draft.latencyClass}}">当前延迟：{{draft.latencyMs}}ms</view>
-    <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
-    <view wx:if="{{error}}" class="danger-text">{{error}}</view>
 
-    <view wx:if="{{discoveredModels.length}}" class="discovery-list">
-      <view class="subhead">模型选择</view>
-      <view wx:for="{{discoveredModels}}" wx:key="id" class="discovery-item">
-        <view class="discovery-meta">
-          <view class="discovery-name">{{item.name}}</view>
-          <view class="muted mono">{{item.id}}</view>
-        </view>
-        <view class="actions">
-          <button class="button-soft" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">{{item.checkedText}}</button>
-          <button class="button-soft" data-id="{{item.id}}" bindtap="setDefaultDiscoveredModel">设为默认</button>
-        </view>
-      </view>
-    </view>
-  </view>
-
-  <view class="section">
-    <view class="title">渠道列表</view>
+    <view wx:if="{{hasNoChannels}}" class="empty-state">还没有渠道，先添加一个上游供应商。</view>
     <view wx:for="{{models}}" wx:key="id" class="channel-item {{item.enabledClass}}">
       <view class="channel-head">
-        <view class="channel-name">{{item.name}}</view>
+        <view class="channel-name">{{item.displayName}}</view>
         <view class="status-pill">{{item.enabledText}}</view>
       </view>
       <view class="muted">{{item.summary}}</view>
@@ -54,6 +20,53 @@
       <view class="actions">
         <button class="button-soft" data-id="{{item.id}}" bindtap="edit">编辑</button>
         <button class="button-danger" data-id="{{item.id}}" bindtap="remove">删除</button>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{showEditor}}" class="section editor-section">
+    <view class="channel-list-head">
+      <view>
+        <view class="title">{{editorTitle}}</view>
+        <view class="subtitle">填写渠道信息后，可以先测速，再获取模型列表。</view>
+      </view>
+      <button class="button-soft compact" bindtap="cancelEdit">关闭</button>
+    </view>
+
+    <view class="field"><view class="label">渠道名称</view><input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="例如 Agnes、硅基流动、OpenAI" /></view>
+    <view class="field"><view class="label">API 类型</view><picker mode="selector" range="{{apiKindLabels}}" value="{{apiKindIndex}}" bindchange="onApiKindChange"><view class="picker-box">{{currentApiKindLabel}}</view></picker></view>
+    <view class="field"><view class="label">供应商协议</view><picker mode="selector" range="{{apiTypeLabels}}" value="{{apiTypeIndex}}" bindchange="onApiTypeChange"><view class="picker-box">{{currentApiTypeLabel}}</view></picker></view>
+    <view class="field"><view class="label">URL</view><input class="input mono" value="{{draft.base_url}}" bindinput="onBaseUrlInput" placeholder="https://example.com/v1" /></view>
+    <view class="field"><view class="label">API Key</view><textarea class="textarea mono" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="填入上游供应商 API Key" /></view>
+    <view class="field"><view class="label">备注</view><textarea class="textarea" value="{{draft.notes}}" data-field="notes" bindinput="onInput" placeholder="额度、账号、用途等备注" /></view>
+    <view class="switch-row">
+      <view>
+        <view class="label inline-label">渠道状态</view>
+        <view class="muted">{{draft.enabledText}}</view>
+      </view>
+      <switch checked="{{draft.enabled}}" bindchange="onEnabledChange" />
+    </view>
+
+    <view class="actions">
+      <button class="button-primary" bindtap="save">保存渠道</button>
+      <button class="button-soft" bindtap="testModel">URL 测速</button>
+      <button class="button-soft" bindtap="discoverModels">获取模型列表</button>
+    </view>
+    <view wx:if="{{draft.latencyMs}}" class="latency-row {{draft.latencyClass}}">当前延迟：{{draft.latencyMs}}ms</view>
+    <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
+    <view wx:if="{{error}}" class="danger-text">{{error}}</view>
+
+    <view wx:if="{{discoveredModels.length}}" class="discovery-list">
+      <view class="subhead">模型列表</view>
+      <view wx:for="{{discoveredModels}}" wx:key="id" class="discovery-item">
+        <view class="discovery-meta">
+          <view class="discovery-name">{{item.name}}</view>
+          <view class="muted mono">{{item.id}}</view>
+        </view>
+        <view class="actions inline-actions">
+          <button class="button-soft" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">{{item.checkedText}}</button>
+          <button class="button-soft" data-id="{{item.id}}" bindtap="setDefaultDiscoveredModel">默认</button>
+        </view>
       </view>
     </view>
   </view>

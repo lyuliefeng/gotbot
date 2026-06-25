@@ -73,6 +73,7 @@ async function main() {
       base_url: 'https://example.com/v1',
       apiKey: 'mock-key',
       keyMode: 'user',
+      kind: 'image',
       enabled: false,
       notes: 'channel notes',
       upstream_headers: '{"X-Test":"1"}',
@@ -82,6 +83,7 @@ async function main() {
   })
   assert.equal(savedChannel.api_type, 'custom')
   assert.equal(savedChannel.base_url, 'https://example.com/v1')
+  assert.equal(savedChannel.kind, 'image')
   assert.equal(savedChannel.enabled, false)
   core = await invoke('modelProfiles', { action: 'core' })
   const coreChannel = core.channels.find((channel) => channel.id === 'channel-smoke-channel')
