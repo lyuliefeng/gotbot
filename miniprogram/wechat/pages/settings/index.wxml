@@ -43,7 +43,6 @@
     <view class="form-grid">
       <view class="field"><view class="label">渠道名称</view><input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="Agnes / OpenAI" /></view>
       <view class="field"><view class="label">API 类型</view><picker mode="selector" range="{{apiKindLabels}}" value="{{apiKindIndex}}" bindchange="onApiKindChange"><view class="picker-box">{{currentApiKindLabel}}</view></picker></view>
-      <view class="field"><view class="label">供应商协议</view><picker mode="selector" range="{{apiTypeLabels}}" value="{{apiTypeIndex}}" bindchange="onApiTypeChange"><view class="picker-box">{{currentApiTypeLabel}}</view></picker></view>
       <view class="field"><view class="label">URL</view><input class="input mono" value="{{draft.base_url}}" bindinput="onBaseUrlInput" placeholder="https://example.com/v1" /></view>
       <view class="field wide"><view class="label">API Key</view><textarea class="textarea key-area mono" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="填入上游供应商 API Key；编辑时留空会保留原 Key" /></view>
       <view class="field wide"><view class="label">备注</view><textarea class="textarea note-area" value="{{draft.notes}}" data-field="notes" bindinput="onInput" placeholder="额度、账号、用途等备注" /></view>

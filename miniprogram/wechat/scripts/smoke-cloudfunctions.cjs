@@ -100,13 +100,14 @@ async function main() {
   assert.ok(['green', 'yellow', 'red'].includes(testResult.latencyLevel))
 
   const { server, endpoint } = await startModelListServer()
+  const endpointWithV1 = `${endpoint}/v1`
   try {
     const discovered = await invoke('modelProfiles', {
       action: 'discover',
       profile: {
         ...savedModel,
-        base_url: endpoint,
-        endpoint,
+        base_url: endpointWithV1,
+        endpoint: endpointWithV1,
         keyMode: 'platform',
       },
     })
@@ -114,7 +115,7 @@ async function main() {
     assert.equal(discovered.availableModels[0].id, 'mock-image-model')
     assert.deepEqual(discovered.selectedModels, ['mock-image-model'])
     core = await invoke('modelProfiles', { action: 'core' })
-    assert.ok(core.channels.some((channel) => channel.id === 'channel-smoke-model' && channel.base_url === endpoint))
+    assert.ok(core.channels.some((channel) => channel.id === 'channel-smoke-model' && channel.base_url === endpointWithV1))
     assert.ok(core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-model' && entry.model === 'mock-image-model'))
     assert.ok(!core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-model' && entry.model === 'agnes-image-2.1-flash'))
   } finally {

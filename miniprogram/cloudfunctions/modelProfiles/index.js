@@ -153,6 +153,9 @@ function buildDiscoveryUrls(baseUrl) {
   const push = (value) => {
     if (value && !urls.includes(value)) urls.push(value)
   }
+  if (/\/v1(?:\/openai)?$/i.test(root) || /\/v1beta\/openai$/i.test(root)) {
+    push(`${root}/models`)
+  }
   push(`${root}/v1/models`)
   push(`${root}/models`)
   push(`${root}/api/models`)
@@ -167,9 +170,11 @@ function buildApiTypeDiscoveryUrls(baseUrl, apiType) {
     if (value && !urls.includes(value)) urls.push(value)
   }
   if (apiType === 'gemini') {
+    if (/\/v1beta\/openai$/i.test(root)) push(`${root}/models`)
     push(`${root}/v1beta/openai/models`)
     push(`${root}/v1beta/models`)
   } else if (apiType === 'claude') {
+    if (/\/v1$/i.test(root)) push(`${root}/models`)
     push(`${root}/v1/models`)
     push(`${root}/anthropic/v1/models`)
   } else if (apiType === 'azure') {

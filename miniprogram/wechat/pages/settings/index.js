@@ -2,17 +2,8 @@ const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
 const { expandModelProfiles } = require('../../utils/models')
 
-const apiTypeOptions = ['custom', 'openai', 'claude', 'gemini', 'azure', 'responses']
-const apiTypeLabels = ['Custom (OpenAI-compatible)', 'OpenAI', 'Anthropic', 'Google Gemini', 'Azure OpenAI', 'OpenAI Responses']
 const apiKindOptions = ['text', 'image', 'video']
-const apiKindLabels = ['文生文', '文生图', '文生视频']
-
-function defaultUrlForApiType(apiType) {
-  if (apiType === 'openai' || apiType === 'responses') return 'https://api.openai.com'
-  if (apiType === 'claude') return 'https://api.anthropic.com'
-  if (apiType === 'gemini') return 'https://generativelanguage.googleapis.com'
-  return ''
-}
+const apiKindLabels = ['agnes（语言模型）', 'image（生图模型）', 'video（视频模型）']
 
 function protocolForKind(kind) {
   if (kind === 'text') return 'multimodal-chat'
@@ -34,6 +25,10 @@ function defaultModelForKind(kind) {
 
 function labelForKind(kind) {
   return apiKindLabels[Math.max(0, apiKindOptions.indexOf(kind))]
+}
+
+function apiTypeForKind(kind) {
+  return kind === 'text' ? 'openai' : 'custom'
 }
 
 function baseUrlOf(channel) {
@@ -83,7 +78,7 @@ function emptyDraft() {
 
 function normalizeDraft(draft) {
   const kind = draft.kind || 'image'
-  const apiType = draft.api_type || draft.apiType || 'custom'
+  const apiType = draft.api_type || draft.apiType || apiTypeForKind(kind)
   const baseUrl = baseUrlOf(draft)
   const availableModels = availableModelsOf(draft)
   const selectedModels = selectedModelsOf(draft)
@@ -125,11 +120,10 @@ function decorateChannel(channel) {
   return {
     ...normalized,
     displayName: normalized.name || '未命名渠道',
-    apiTypeLabel: apiTypeLabels[Math.max(0, apiTypeOptions.indexOf(normalized.api_type))],
     kindLabel: labelForKind(normalized.kind),
     enabledText: normalized.enabled ? '已启用' : '已停用',
     enabledClass: normalized.enabled ? 'enabled' : 'disabled',
-    summary: `${labelForKind(normalized.kind)} · ${normalized.api_type}${availableCount ? ` · 模型 ${selectedCount || availableCount}/${availableCount}` : ''}${latencyText}`,
+    summary: `${labelForKind(normalized.kind)}${availableCount ? ` · 模型 ${selectedCount || availableCount}/${availableCount}` : ''}${latencyText}`,
     latencyBadgeClass: normalized.latencyLevel ? `latency-${normalized.latencyLevel}` : '',
     latencyLabel: Number.isFinite(normalized.latencyMs) ? `${normalized.latencyMs}ms` : '未测速',
   }
@@ -158,13 +152,9 @@ Page({
     draft: decorateDraftMetrics(emptyDraft()),
     showEditor: false,
     editorTitle: '添加渠道',
-    apiTypeOptions,
-    apiTypeLabels,
     apiKindOptions,
     apiKindLabels,
-    apiTypeIndex: 0,
     apiKindIndex: 1,
-    currentApiTypeLabel: apiTypeLabels[0],
     currentApiKindLabel: apiKindLabels[1],
     discoveredModels: [],
     notice: '',
@@ -199,9 +189,7 @@ Page({
       showEditor: true,
       editorTitle: '添加渠道',
       draft: decorateDraftMetrics(emptyDraft()),
-      apiTypeIndex: 0,
       apiKindIndex: 1,
-      currentApiTypeLabel: apiTypeLabels[0],
       currentApiKindLabel: apiKindLabels[1],
       discoveredModels: [],
       notice: '',
@@ -213,29 +201,16 @@ Page({
     this.setData({ showEditor: false, draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], notice: '', error: '' })
   },
 
-  onApiTypeChange(event) {
-    const index = Number(event.detail.value)
-    const apiType = apiTypeOptions[index]
-    const currentBaseUrl = baseUrlOf(this.data.draft)
-    const nextBaseUrl = currentBaseUrl || defaultUrlForApiType(apiType)
-    this.setData({
-      apiTypeIndex: index,
-      currentApiTypeLabel: apiTypeLabels[index],
-      'draft.api_type': apiType,
-      'draft.apiType': apiType,
-      'draft.base_url': nextBaseUrl,
-      'draft.baseUrl': nextBaseUrl,
-      'draft.endpoint': nextBaseUrl,
-    })
-  },
-
   onApiKindChange(event) {
     const index = Number(event.detail.value)
     const kind = apiKindOptions[index]
+    const apiType = apiTypeForKind(kind)
     this.setData({
       apiKindIndex: index,
       currentApiKindLabel: apiKindLabels[index],
       'draft.kind': kind,
+      'draft.api_type': apiType,
+      'draft.apiType': apiType,
       'draft.apiProtocol': protocolForKind(kind),
       'draft.apiPath': apiPathForKind(kind),
       'draft.model': defaultModelForKind(kind),
@@ -255,9 +230,7 @@ Page({
       showEditor: true,
       editorTitle: '编辑渠道',
       draft,
-      apiTypeIndex: Math.max(0, apiTypeOptions.indexOf(draft.api_type)),
       apiKindIndex: Math.max(0, apiKindOptions.indexOf(draft.kind)),
-      currentApiTypeLabel: apiTypeLabels[Math.max(0, apiTypeOptions.indexOf(draft.api_type))],
       currentApiKindLabel: apiKindLabels[Math.max(0, apiKindOptions.indexOf(draft.kind))],
       discoveredModels: decorateDiscoveredModels(draft),
       notice: '',
