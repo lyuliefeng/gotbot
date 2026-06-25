@@ -15,6 +15,7 @@
       <button class="button-soft" bindtap="discoverModels">识别模型</button>
       <button class="button-soft" bindtap="testModel">检测连接</button>
     </view>
+    <view wx:if="{{draft.latencyMs}}" class="latency-row {{draft.latencyClass}}">当前延迟：{{draft.latencyMs}}ms</view>
     <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
     <view wx:if="{{error}}" class="danger-text">{{error}}</view>
 
@@ -38,6 +39,7 @@
     <view wx:for="{{models}}" wx:key="id" class="model-item">
       <view>{{item.name}}</view>
       <view class="muted">{{item.summary}}</view>
+      <view class="latency-row {{item.latencyBadgeClass}}">{{item.latencyLabel}}</view>
       <view class="actions">
         <button class="button-soft" data-id="{{item.id}}" bindtap="edit">编辑</button>
         <button class="button-danger" data-id="{{item.id}}" bindtap="remove">删除</button>

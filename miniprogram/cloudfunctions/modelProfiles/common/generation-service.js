@@ -23,9 +23,38 @@ function validateGenerationInput(input) {
 async function testProfile(profile) {
   if (!profile.endpoint?.trim()) return { ok: false, message: '请填写 API 地址' }
   if (profile.keyMode === 'user' && !profile.apiKey?.trim()) return { ok: false, message: '请填写 API Key' }
-  return {
-    ok: true,
-    message: `${profile.name} 已通过配置校验，默认协议 ${profile.apiProtocol || 'openai-images'}，路径 ${profile.apiPath || protocolDefaults[profile.apiProtocol || 'openai-images']}`,
+  const startedAt = Date.now()
+  const endpoint = normalizeEndpoint(profile.endpoint, profile.apiPath || protocolDefaults[profile.apiProtocol || 'openai-images'])
+  const headers = { Accept: 'application/json' }
+  if (profile.apiKey) headers.Authorization = `Bearer ${profile.apiKey}`
+  try {
+    const response = await requestBuffer(endpoint, { method: 'POST', headers, timeout: 10000 }, JSON.stringify({ model: profile.model || 'ping', prompt: 'ping', size: '256x256', n: 1 }))
+    const latencyMs = Date.now() - startedAt
+    const latencyLevel = latencyMs < 200 ? 'green' : latencyMs <= 500 ? 'yellow' : 'red'
+    if (response.statusCode >= 200 && response.statusCode < 500) {
+      return {
+        ok: true,
+        message: `${profile.name} 连通，延迟 ${latencyMs}ms`,
+        latencyMs,
+        latencyLevel,
+        endpoint,
+      }
+    }
+    return {
+      ok: false,
+      message: `${profile.name} 返回 ${response.statusCode}，延迟 ${latencyMs}ms`,
+      latencyMs,
+      latencyLevel,
+      endpoint,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: `${profile.name} 连通失败：${error.message || 'request failed'}`,
+      latencyMs: Date.now() - startedAt,
+      latencyLevel: 'red',
+      endpoint,
+    }
   }
 }
 
@@ -84,6 +113,7 @@ function requestBuffer(url, options = {}, body = null) {
         body: Buffer.concat(chunks),
       }))
     })
+    req.setTimeout(options.timeout || 10000, () => req.destroy(new Error('request timeout')))
     req.on('error', reject)
     if (body) req.write(body)
     req.end()

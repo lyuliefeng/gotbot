@@ -57,8 +57,14 @@ async function main() {
   const models = await invoke('modelProfiles', { action: 'list' })
   assert.ok(models.some((model) => model.id === 'smoke-model'))
 
+  let core = await invoke('modelProfiles', { action: 'core' })
+  assert.ok(core.channels.some((channel) => channel.id === 'channel-smoke-model'))
+  assert.ok(core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-model' && entry.model === 'agnes-image-2.1-flash'))
+
   const testResult = await invoke('modelProfiles', { action: 'test', profile: savedModel })
   assert.equal(typeof testResult.message, 'string')
+  assert.equal(typeof testResult.latencyMs, 'number')
+  assert.ok(['green', 'yellow', 'red'].includes(testResult.latencyLevel))
 
   const { server, endpoint } = await startModelListServer()
   try {
@@ -73,9 +79,24 @@ async function main() {
     assert.equal(discovered.sourceType, 'api-switch-discovery')
     assert.equal(discovered.availableModels[0].id, 'mock-image-model')
     assert.deepEqual(discovered.selectedModels, ['mock-image-model'])
+    core = await invoke('modelProfiles', { action: 'core' })
+    assert.ok(core.channels.some((channel) => channel.id === 'channel-smoke-model' && channel.base_url === endpoint))
+    assert.ok(core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-model' && entry.model === 'mock-image-model'))
+    assert.ok(!core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-model' && entry.model === 'agnes-image-2.1-flash'))
   } finally {
     server.close()
   }
+
+  const deleted = await invoke('modelProfiles', { action: 'delete', id: 'smoke-model' })
+  assert.equal(deleted, true)
+  core = await invoke('modelProfiles', { action: 'core' })
+  assert.ok(!core.channels.some((channel) => channel.id === 'channel-smoke-model'))
+  assert.ok(!core.apiEntries.some((entry) => entry.channel_id === 'channel-smoke-model'))
+
+  await invoke('modelProfiles', {
+    action: 'save',
+    profile: savedModel,
+  })
 
   if (!process.env.PLATFORM_IMAGE_API_KEY) {
     const generationMod = require(path.join(cloudRoot, 'generationTasks', 'index.js'))

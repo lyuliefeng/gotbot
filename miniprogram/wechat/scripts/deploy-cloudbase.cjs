@@ -7,6 +7,7 @@ const outputRoot = path.join('/tmp', 'gotbot-cloudfunctions-bundled')
 const deployRoot = path.join('/tmp', 'gotbot-cloudbase-deploy')
 const envId = process.env.CLOUDBASE_ENV_ID || 'cloud1-d5g01k4t5decfcc5c'
 const platformKey = process.env.PLATFORM_IMAGE_API_KEY || ''
+const platformSecret = process.env.PLATFORM_IMAGE_API_SECRET || ''
 const secret = process.env.GOTBOT_MINIPROGRAM_SECRET || crypto.randomBytes(32).toString('hex')
 
 if (!platformKey) {
@@ -43,6 +44,7 @@ fs.writeFileSync(path.join(deployRoot, 'cloudbaserc.json'), JSON.stringify({
     timeout: item.timeout,
     envVariables: {
       PLATFORM_IMAGE_API_KEY: platformKey,
+      PLATFORM_IMAGE_API_SECRET: platformSecret,
       GOTBOT_MINIPROGRAM_SECRET: secret,
     },
   })),

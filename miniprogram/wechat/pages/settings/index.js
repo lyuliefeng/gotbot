@@ -23,13 +23,23 @@ function emptyDraft() {
   }
 }
 
+function decorateDraftMetrics(draft) {
+  return {
+    ...draft,
+    latencyClass: draft.latencyLevel ? `latency-${draft.latencyLevel}` : '',
+  }
+}
+
 function decorateModel(model) {
   const availableCount = Array.isArray(model.availableModels) ? model.availableModels.length : 0
   const selectedCount = Array.isArray(model.selectedModels) ? model.selectedModels.length : 0
+  const latencyText = Number.isFinite(model.latencyMs) ? ` · ${model.latencyMs}ms` : ''
   return {
     ...model,
     keyModeLabel: model.keyMode === 'platform' ? '平台 Key' : '用户 Key',
-    summary: `${model.apiProtocol} · ${model.keyMode === 'platform' ? '平台 Key' : '用户 Key'}${availableCount ? ` · 已识别 ${selectedCount || availableCount}/${availableCount}` : ''}`,
+    summary: `${model.apiProtocol} · ${model.keyMode === 'platform' ? '平台 Key' : '用户 Key'}${availableCount ? ` · 已识别 ${selectedCount || availableCount}/${availableCount}` : ''}${latencyText}`,
+    latencyBadgeClass: model.latencyLevel ? `latency-${model.latencyLevel}` : '',
+    latencyLabel: Number.isFinite(model.latencyMs) ? `${model.latencyMs}ms` : '未测速',
   }
 }
 
@@ -45,7 +55,7 @@ function decorateDraft(draft) {
 Page({
   data: {
     models: [],
-    draft: emptyDraft(),
+    draft: decorateDraftMetrics(emptyDraft()),
     protocolOptions,
     keyModeOptions,
     protocolIndex: 0,
@@ -90,7 +100,7 @@ Page({
     const model = this.data.models.find((item) => item.id === event.currentTarget.dataset.id)
     if (!model) return
     this.setData({
-      draft: { ...model, apiKey: '', apiSecret: '' },
+      draft: decorateDraftMetrics({ ...model, apiKey: '', apiSecret: '' }),
       protocolIndex: Math.max(0, protocolOptions.indexOf(model.apiProtocol)),
       keyModeIndex: Math.max(0, keyModeOptions.indexOf(model.keyMode)),
       showUserKeyFields: model.keyMode === 'user',
@@ -110,7 +120,7 @@ Page({
       const expanded = expandModelProfiles(models)
       state.defaultModelId = state.defaultModelId || expanded[0]?.id || saved.id
       saveState(state)
-      this.setData({ models: models.map(decorateModel), draft: emptyDraft(), discoveredModels: [], showUserKeyFields: true, notice: '模型配置已保存', error: '' })
+      this.setData({ models: models.map(decorateModel), draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], showUserKeyFields: true, notice: '模型配置已保存', error: '' })
     } catch (error) {
       this.setData({ error: error.message || '保存失败' })
     }
@@ -119,7 +129,8 @@ Page({
   async testModel() {
     try {
       const result = await callFunction('modelProfiles', { action: 'test', profile: this.data.draft })
-      this.setData({ notice: result.message, error: '' })
+      const nextDraft = decorateDraftMetrics({ ...this.data.draft, latencyMs: result.latencyMs, latencyLevel: result.latencyLevel, lastCheckedAt: new Date().toISOString(), status: result.ok ? 'connected' : 'failed' })
+      this.setData({ draft: nextDraft, notice: result.message, error: '' })
     } catch (error) {
       this.setData({ error: error.message || '检测失败' })
     }
@@ -140,7 +151,7 @@ Page({
       saveState(state)
       this.setData({
         models: models.map(decorateModel),
-        draft: saved,
+        draft: decorateDraftMetrics(saved),
         discoveredModels: decorateDraft(saved),
         showUserKeyFields: saved.keyMode === 'user',
         notice: `已识别 ${saved.availableModels?.length || 0} 个模型`,
@@ -157,7 +168,7 @@ Page({
     const selected = new Set(draft.selectedModels || [])
     if (selected.has(modelId)) selected.delete(modelId)
     else selected.add(modelId)
-    const nextDraft = { ...draft, selectedModels: Array.from(selected) }
+    const nextDraft = decorateDraftMetrics({ ...draft, selectedModels: Array.from(selected) })
     this.setData({ draft: nextDraft, discoveredModels: decorateDraft(nextDraft) })
   },
 

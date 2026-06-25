@@ -10,6 +10,8 @@ try {
 const memory = {
   users: [],
   modelProfiles: [],
+  apiSwitchChannels: [],
+  apiSwitchEntries: [],
   generationTasks: [],
   promptPacks: [],
 }
@@ -19,12 +21,14 @@ function hasCloudDb() {
 }
 
 async function list(collection, predicate = () => true) {
+  if (!memory[collection]) memory[collection] = []
   if (!hasCloudDb()) return memory[collection].filter(predicate)
   const result = await wxServer.database().collection(collection).where({}).get()
   return result.data.filter(predicate)
 }
 
 async function upsert(collection, matcher, value) {
+  if (!memory[collection]) memory[collection] = []
   if (!hasCloudDb()) {
     const index = memory[collection].findIndex(matcher)
     if (index >= 0) {
@@ -46,6 +50,7 @@ async function upsert(collection, matcher, value) {
 }
 
 async function remove(collection, matcher) {
+  if (!memory[collection]) memory[collection] = []
   if (!hasCloudDb()) {
     const before = memory[collection].length
     memory[collection] = memory[collection].filter((item) => !matcher(item))
