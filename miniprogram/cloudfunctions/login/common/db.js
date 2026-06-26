@@ -10,8 +10,6 @@ try {
 const memory = {
   users: [],
   modelProfiles: [],
-  apiSwitchChannels: [],
-  apiSwitchEntries: [],
   generationTasks: [],
   promptPacks: [],
 }
@@ -20,20 +18,13 @@ function hasCloudDb() {
   return Boolean(wxServer && wxServer.database)
 }
 
-function stripCloudPrivateFields(value) {
-  const { _id, ...rest } = value || {}
-  return rest
-}
-
 async function list(collection, predicate = () => true) {
-  if (!memory[collection]) memory[collection] = []
   if (!hasCloudDb()) return memory[collection].filter(predicate)
   const result = await wxServer.database().collection(collection).where({}).get()
   return result.data.filter(predicate)
 }
 
 async function upsert(collection, matcher, value) {
-  if (!memory[collection]) memory[collection] = []
   if (!hasCloudDb()) {
     const index = memory[collection].findIndex(matcher)
     if (index >= 0) {
@@ -47,17 +38,14 @@ async function upsert(collection, matcher, value) {
   const db = wxServer.database()
   const existing = await list(collection, matcher)
   if (existing[0]?._id) {
-    const updateValue = stripCloudPrivateFields(value)
-    await db.collection(collection).doc(existing[0]._id).update({ data: updateValue })
-    return { ...existing[0], ...updateValue }
+    await db.collection(collection).doc(existing[0]._id).update({ data: value })
+    return { ...existing[0], ...value }
   }
-  const addValue = stripCloudPrivateFields(value)
-  const addResult = await db.collection(collection).add({ data: addValue })
-  return { ...addValue, _id: addResult._id }
+  const addResult = await db.collection(collection).add({ data: value })
+  return { ...value, _id: addResult._id }
 }
 
 async function remove(collection, matcher) {
-  if (!memory[collection]) memory[collection] = []
   if (!hasCloudDb()) {
     const before = memory[collection].length
     memory[collection] = memory[collection].filter((item) => !matcher(item))

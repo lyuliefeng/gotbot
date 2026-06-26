@@ -15,46 +15,19 @@ const imageMimeByExtension = {
 function validateGenerationInput(input) {
   const minDimension = input.mode === 'icon' ? 16 : 128
   if (!input.prompt?.trim()) throw new Error('请输入正向提示词')
-  if (!input.modelId?.trim()) throw new Error('请选择图像模型')
+  const isVideoMode = input.mode === 'txt2video' || input.mode === 'img2video'
+  if (!input.modelId?.trim()) throw new Error(isVideoMode ? '请选择视频模型' : '请选择图像模型')
   if (input.width < minDimension || input.width > 4096) throw new Error(`宽度必须在 ${minDimension} 到 4096 之间`)
   if (input.height < minDimension || input.height > 4096) throw new Error(`高度必须在 ${minDimension} 到 4096 之间`)
+  if (input.mode === 'img2video' && !input.referenceImage) throw new Error('图生视频需要先上传参考图')
 }
 
 async function testProfile(profile) {
   if (!profile.endpoint?.trim()) return { ok: false, message: '请填写 API 地址' }
   if (profile.keyMode === 'user' && !profile.apiKey?.trim()) return { ok: false, message: '请填写 API Key' }
-  const startedAt = Date.now()
-  const endpoint = normalizeEndpoint(profile.endpoint, profile.apiPath || protocolDefaults[profile.apiProtocol || 'openai-images'])
-  const headers = { Accept: 'application/json' }
-  if (profile.apiKey) headers.Authorization = `Bearer ${profile.apiKey}`
-  try {
-    const response = await requestBuffer(endpoint, { method: 'POST', headers, timeout: 10000 }, JSON.stringify({ model: profile.model || 'ping', prompt: 'ping', size: '256x256', n: 1 }))
-    const latencyMs = Date.now() - startedAt
-    const latencyLevel = latencyMs < 200 ? 'green' : latencyMs <= 500 ? 'yellow' : 'red'
-    if (response.statusCode >= 200 && response.statusCode < 500) {
-      return {
-        ok: true,
-        message: `${profile.name} 连通，延迟 ${latencyMs}ms`,
-        latencyMs,
-        latencyLevel,
-        endpoint,
-      }
-    }
-    return {
-      ok: false,
-      message: `${profile.name} 返回 ${response.statusCode}，延迟 ${latencyMs}ms`,
-      latencyMs,
-      latencyLevel,
-      endpoint,
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      message: `${profile.name} 连通失败：${error.message || 'request failed'}`,
-      latencyMs: Date.now() - startedAt,
-      latencyLevel: 'red',
-      endpoint,
-    }
+  return {
+    ok: true,
+    message: `${profile.name} 已通过配置校验，默认协议 ${profile.apiProtocol || 'openai-images'}，路径 ${profile.apiPath || protocolDefaults[profile.apiProtocol || 'openai-images']}`,
   }
 }
 
@@ -113,7 +86,6 @@ function requestBuffer(url, options = {}, body = null) {
         body: Buffer.concat(chunks),
       }))
     })
-    req.setTimeout(options.timeout || 10000, () => req.destroy(new Error('request timeout')))
     req.on('error', reject)
     if (body) req.write(body)
     req.end()
@@ -139,9 +111,9 @@ async function readAgnesImage(result) {
   }
 }
 
-async function callAgnesImage(input, model, index) {
-  if (!model.apiKey) throw new Error('平台 Agnes API Key 未配置')
-  const endpoint = normalizeEndpoint(model.endpoint || 'https://apihub.agnes-ai.com/v1', model.apiPath || protocolDefaults['agnes-image'])
+async function callOpenAIImage(input, model, index) {
+  if (!model.apiKey) throw new Error('API Key 未配置')
+  const endpoint = normalizeEndpoint(model.endpoint || 'https://apihub.agnes-ai.com', model.apiPath || protocolDefaults['openai-images'])
   const requestBody = JSON.stringify({
     model: model.model || 'agnes-image-2.1-flash',
     prompt: input.negativePrompt ? `${input.prompt}\nNegative prompt: ${input.negativePrompt}` : input.prompt,
@@ -166,7 +138,7 @@ async function callAgnesImage(input, model, index) {
     throw new Error(`Agnes 响应不是 JSON：${text.slice(0, 120)}`)
   }
 
-  if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(payload.error?.message || payload.message || `Agnes 请求失败：${response.statusCode}`)
+  if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(payload.error?.message || payload.message || `图片生成请求失败：${response.statusCode}`)
   return readAgnesImage(payload)
 }
 
@@ -184,12 +156,14 @@ async function createGenerationTask(input, model, openid) {
   validateGenerationInput(input)
   const createdAt = new Date().toISOString()
   const taskId = `task-${randomUUID()}`
+  const assetKind = input.mode === 'txt2video' || input.mode === 'img2video' ? 'video' : 'image'
   const assets = []
 
   for (let index = 0; index < input.batchSize; index += 1) {
     const assetId = `asset-${randomUUID()}`
-    const stored = model.apiProtocol === 'agnes-image'
-      ? await uploadImageIfPossible(taskId, assetId, await callAgnesImage(input, model, index))
+    const shouldCallImageApi = ['agnes-image', 'openai-images'].includes(model.apiProtocol)
+    const stored = shouldCallImageApi
+      ? await uploadImageIfPossible(taskId, assetId, await callOpenAIImage(input, model, index))
       : await uploadPreviewIfPossible(taskId, assetId, previewDataUrl(input, index))
     assets.push({
       id: assetId,
@@ -199,6 +173,7 @@ async function createGenerationTask(input, model, openid) {
       height: input.height,
       format: stored.format || (input.mode === 'gif' ? 'gif' : 'svg'),
       ...stored,
+      assetKind,
       mediaType: 'image',
       createdAt,
       isFavorite: false,
@@ -209,6 +184,7 @@ async function createGenerationTask(input, model, openid) {
     id: taskId,
     ...input,
     status: 'completed',
+    assetKind,
     assets,
     createdAt,
     keyMode: model.keyMode,

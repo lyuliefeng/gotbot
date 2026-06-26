@@ -1,268 +1,331 @@
 const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
-const { expandModelProfiles } = require('../../utils/models')
 
-const apiKindOptions = ['text', 'image', 'video']
-const apiKindLabels = ['agnes（语言模型）', 'image（生图模型）', 'video（视频模型）']
-
-function protocolForKind(kind) {
-  if (kind === 'text') return 'multimodal-chat'
-  if (kind === 'video') return 'agnes-video'
-  return 'agnes-image'
-}
-
-function apiPathForKind(kind) {
-  if (kind === 'text') return 'chat/completions'
-  if (kind === 'video') return 'videos/generations'
-  return 'images/generations'
-}
-
-function defaultModelForKind(kind) {
-  if (kind === 'text') return 'gpt-4o-mini'
-  if (kind === 'video') return 'agnes-video'
-  return 'agnes-image-2.1-flash'
-}
-
-function labelForKind(kind) {
-  return apiKindLabels[Math.max(0, apiKindOptions.indexOf(kind))]
-}
-
-function apiTypeForKind(kind) {
-  return kind === 'text' ? 'openai' : 'custom'
-}
-
-function baseUrlOf(channel) {
-  return channel.base_url || channel.baseUrl || channel.endpoint || ''
-}
-
-function availableModelsOf(channel) {
-  return Array.isArray(channel.availableModels)
-    ? channel.availableModels
-    : Array.isArray(channel.available_models)
-      ? channel.available_models
-      : []
-}
-
-function selectedModelsOf(channel) {
-  return Array.isArray(channel.selectedModels) && channel.selectedModels.length
-    ? channel.selectedModels
-    : Array.isArray(channel.selected_models) && channel.selected_models.length
-      ? channel.selected_models
-      : []
-}
+const apiProtocol = 'openai-images'
+const apiPath = 'v1/images/generations'
+const nameOptions = [
+  { label: 'Agnes 图片', value: 'Agnes 图片模型', endpoint: 'https://apihub.agnes-ai.com', model: 'agnes-image-2.1-flash', kind: 'image' },
+  { label: '兼容接口', value: 'OpenAI 兼容模型', endpoint: '', model: '', kind: 'image' },
+  { label: '自定义', value: '', kind: 'image' },
+]
+const kindOptions = [
+  { label: '图片模型', value: 'image', hint: '文生图、图生图、封面、ICON、3D 图和 GIF 会自动使用这个通道。' },
+  { label: '视频模型', value: 'video', hint: '视频创作会自动只显示这个通道的模型。' },
+]
+const keyModeOptions = [
+  { label: '平台统一 Key', value: 'platform', hint: '使用云函数里配置好的平台 Key，小程序里不用填写密钥。' },
+  { label: '我的 Key', value: 'user', hint: '使用你自己的 API Key，保存时由云函数加密存储。' },
+]
 
 function emptyDraft() {
   return {
     id: '',
-    name: '',
+    name: 'Agnes 图片模型',
     provider: 'openai-compatible',
-    api_type: 'custom',
-    apiType: 'custom',
-    base_url: '',
-    baseUrl: '',
-    endpoint: '',
-    apiPath: apiPathForKind('image'),
-    apiProtocol: protocolForKind('image'),
+    endpoint: 'https://apihub.agnes-ai.com',
+    apiPath,
+    apiProtocol,
     apiKey: '',
-    apiSecret: '',
-    model: defaultModelForKind('image'),
+    model: 'agnes-image-2.1-flash',
     kind: 'image',
-    keyMode: 'user',
+    keyMode: 'platform',
     isPrimary: false,
-    enabled: true,
-    notes: '',
-    upstream_headers: '',
     status: 'untested',
   }
 }
 
-function normalizeDraft(draft) {
-  const kind = draft.kind || 'image'
-  const apiType = draft.api_type || draft.apiType || apiTypeForKind(kind)
-  const baseUrl = baseUrlOf(draft)
-  const availableModels = availableModelsOf(draft)
-  const selectedModels = selectedModelsOf(draft)
+function decorateModel(model) {
+  const kindLabel = model.kind === 'video' ? '视频' : '图片'
   return {
-    ...draft,
-    kind,
-    api_type: apiType,
-    apiType,
-    base_url: baseUrl,
-    baseUrl,
-    endpoint: baseUrl,
-    apiProtocol: draft.apiProtocol || protocolForKind(kind),
-    apiPath: draft.apiPath || apiPathForKind(kind),
-    keyMode: draft.keyMode || 'user',
-    model: draft.model || selectedModels[0] || availableModels[0]?.id || availableModels[0]?.name || defaultModelForKind(kind),
-    enabled: draft.enabled !== false,
-    availableModels,
-    available_models: availableModels,
-    selectedModels,
-    selected_models: selectedModels,
-    response_ms: draft.response_ms || (Number.isFinite(draft.latencyMs) ? String(draft.latencyMs) : ''),
-  }
-}
-
-function decorateDraftMetrics(draft) {
-  const next = normalizeDraft(draft)
-  return {
-    ...next,
-    enabledText: next.enabled ? '已启用' : '已停用',
-    latencyClass: next.latencyLevel ? `latency-${next.latencyLevel}` : '',
-  }
-}
-
-function decorateChannel(channel) {
-  const normalized = normalizeDraft(channel)
-  const availableCount = normalized.availableModels.length
-  const selectedCount = normalized.selectedModels.length
-  const latencyText = Number.isFinite(normalized.latencyMs) ? ` · ${normalized.latencyMs}ms` : ''
-  return {
-    ...normalized,
-    displayName: normalized.name || '未命名渠道',
-    kindLabel: labelForKind(normalized.kind),
-    enabledText: normalized.enabled ? '已启用' : '已停用',
-    enabledClass: normalized.enabled ? 'enabled' : 'disabled',
-    summary: `${labelForKind(normalized.kind)}${availableCount ? ` · 模型 ${selectedCount || availableCount}/${availableCount}` : ''}${latencyText}`,
-    latencyBadgeClass: normalized.latencyLevel ? `latency-${normalized.latencyLevel}` : '',
-    latencyLabel: Number.isFinite(normalized.latencyMs) ? `${normalized.latencyMs}ms` : '未测速',
-  }
-}
-
-function pageModels(models) {
-  return {
-    models: (models || []).map(decorateChannel),
-    hasNoChannels: !(models || []).length,
-  }
-}
-
-function decorateDiscoveredModels(draft) {
-  const selected = new Set(selectedModelsOf(draft))
-  return availableModelsOf(draft).map((model) => ({
     ...model,
-    rowClass: selected.has(model.id) || selected.has(model.name) ? 'selected' : '',
-    checked: selected.has(model.id) || selected.has(model.name),
-    checkedText: selected.has(model.id) || selected.has(model.name) ? '已启用' : '未启用',
-  }))
+    kindLabel,
+    keyModeLabel: model.keyMode === 'platform' ? '平台 Key' : '用户 Key',
+    summary: `${kindLabel}通道 · ${model.keyMode === 'platform' ? '平台统一 Key' : '我的 Key'} · ${model.model || '未选择模型'}`,
+  }
+}
+
+function currentKeyModeOption(keyMode) {
+  return keyModeOptions.find((item) => item.value === keyMode) || keyModeOptions[0]
+}
+
+function currentKindOption(kind) {
+  return kindOptions.find((item) => item.value === kind) || kindOptions[0]
+}
+
+function modelPickerLabel(options, index) {
+  if (index >= 0 && options[index]) return `选择模型：${options[index].name}`
+  return '选择模型：请选择'
+}
+
+function normalizeEndpoint(endpoint) {
+  return String(endpoint || '').replace(/\/+$/, '')
+}
+
+function modelsUrl(endpoint) {
+  const base = normalizeEndpoint(endpoint)
+  return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`
+}
+
+function normalizeModels(payload) {
+  const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : Array.isArray(payload) ? payload : []
+  return items.map((item) => {
+    const id = String(item.id || item.name || item.model || '').replace(/^models\//, '')
+    return { id, name: item.name || id }
+  }).filter((item) => item.id)
 }
 
 Page({
   data: {
     models: [],
-    hasNoChannels: true,
-    draft: decorateDraftMetrics(emptyDraft()),
-    showEditor: false,
-    editorTitle: '添加渠道',
-    apiKindOptions,
-    apiKindLabels,
-    apiKindIndex: 1,
-    currentApiKindLabel: apiKindLabels[1],
-    discoveredModels: [],
-    discoveredModelCount: 0,
-    selectedModelCount: 0,
-    showModelModal: false,
+    draft: emptyDraft(),
+    nameOptions: nameOptions.map((item) => item.label),
+    kindLabels: kindOptions.map((item) => item.label),
+    keyModeLabels: keyModeOptions.map((item) => item.label),
+    modelOptions: [],
+    currentNameLabel: nameOptions[0].label,
+    currentKindLabel: kindOptions[0].label,
+    currentKeyModeLabel: keyModeOptions[0].label,
+    currentModelLabel: '选择模型：请选择',
+    currentModelText: 'agnes-image-2.1-flash',
+    nameIndex: 0,
+    kindIndex: 0,
+    keyModeIndex: 0,
+    showCustomName: false,
+    showUserKeyFields: false,
+    kindHint: kindOptions[0].hint,
+    keyModeHint: keyModeOptions[0].hint,
+    modelIndex: -1,
+    isFetchingModels: false,
+    showManualModelInput: false,
     notice: '',
     error: '',
   },
 
   onShow() {
     const state = loadState()
-    this.setData(pageModels(state.models || []))
+    this.setData({ models: (state.models || []).map(decorateModel) })
     callFunction('modelProfiles', { action: 'list' }).then((models) => {
       if (models && models.length) {
         const next = loadState()
         next.models = models
-        const expanded = expandModelProfiles(models)
-        next.defaultModelId = expanded.find((model) => model.isPrimary)?.id || expanded[0]?.id || models[0].id
+        next.defaultModelId = models.find((model) => model.isPrimary)?.id || models[0].id
         saveState(next)
-        this.setData(pageModels(models))
+        this.setData({ models: models.map(decorateModel) })
       }
     }).catch(() => undefined)
   },
 
   onInput(event) {
-    this.setData({ [`draft.${event.currentTarget.dataset.field}`]: event.detail.value })
+    const field = event.currentTarget.dataset.field
+    const next = { [`draft.${field}`]: event.detail.value }
+    if (field === 'model') next.currentModelText = event.detail.value || '未选择模型'
+    this.setData(next)
   },
 
-  noop() {},
-
-  onBaseUrlInput(event) {
-    this.setData({ 'draft.base_url': event.detail.value, 'draft.baseUrl': event.detail.value, 'draft.endpoint': event.detail.value })
+  onNameModeChange(event) {
+    const index = Number(event.detail.value)
+    const preset = nameOptions[index]
+    const next = {
+      nameIndex: index,
+      currentNameLabel: preset.label,
+      showCustomName: preset.label === '自定义',
+      notice: '',
+      error: '',
+    }
+    if (preset.value) {
+      next['draft.name'] = preset.value
+      next['draft.endpoint'] = preset.endpoint
+      next['draft.model'] = preset.model
+      next['draft.kind'] = preset.kind || 'image'
+      next.kindIndex = Math.max(0, kindOptions.findIndex((item) => item.value === (preset.kind || 'image')))
+      next.currentKindLabel = currentKindOption(preset.kind).label
+      next.kindHint = currentKindOption(preset.kind).hint
+      next.modelOptions = []
+      next.modelIndex = -1
+      next.showManualModelInput = false
+      next.currentModelText = preset.model || '先拉取或手动填写模型 ID'
+    } else {
+      next['draft.name'] = ''
+      next['draft.kind'] = 'image'
+      next.kindIndex = 0
+      next.currentKindLabel = kindOptions[0].label
+      next.kindHint = kindOptions[0].hint
+      next.modelOptions = []
+      next.modelIndex = -1
+      next.showManualModelInput = true
+      next.currentModelText = '先拉取或手动填写模型 ID'
+    }
+    this.setData(next)
   },
 
-  openAddChannel() {
+  onKindChange(event) {
+    const index = Number(event.detail.value)
+    const option = kindOptions[index] || kindOptions[0]
     this.setData({
-      showEditor: true,
-      editorTitle: '添加渠道',
-      draft: decorateDraftMetrics(emptyDraft()),
-      apiKindIndex: 1,
-      currentApiKindLabel: apiKindLabels[1],
-      discoveredModels: [],
-      discoveredModelCount: 0,
-      selectedModelCount: 0,
-      showModelModal: false,
+      kindIndex: index,
+      currentKindLabel: option.label,
+      'draft.kind': option.value,
+      kindHint: option.hint,
       notice: '',
       error: '',
     })
   },
 
-  cancelEdit() {
-    this.setData({ showEditor: false, showModelModal: false, draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], discoveredModelCount: 0, selectedModelCount: 0, notice: '', error: '' })
-  },
-
-  onApiKindChange(event) {
+  onKeyModeChange(event) {
     const index = Number(event.detail.value)
-    const kind = apiKindOptions[index]
-    const apiType = apiTypeForKind(kind)
+    const option = keyModeOptions[index]
     this.setData({
-      apiKindIndex: index,
-      currentApiKindLabel: apiKindLabels[index],
-      'draft.kind': kind,
-      'draft.api_type': apiType,
-      'draft.apiType': apiType,
-      'draft.apiProtocol': protocolForKind(kind),
-      'draft.apiPath': apiPathForKind(kind),
-      'draft.model': defaultModelForKind(kind),
+      keyModeIndex: index,
+      currentKeyModeLabel: option.label,
+      'draft.keyMode': option.value,
+      showUserKeyFields: option.value === 'user',
+      keyModeHint: option.hint,
+      notice: '',
+      error: '',
     })
   },
 
-  onEnabledChange(event) {
-    const enabled = Boolean(event.detail.value)
-    this.setData({ 'draft.enabled': enabled, 'draft.enabledText': enabled ? '已启用' : '已停用' })
+  onModelChange(event) {
+    const index = Number(event.detail.value)
+    const model = this.data.modelOptions[index]
+    if (!model) return
+    this.setData({
+      modelIndex: index,
+      currentModelLabel: modelPickerLabel(this.data.modelOptions, index),
+      currentModelText: model.id,
+      showManualModelInput: false,
+      'draft.model': model.id,
+      notice: `已选择 ${model.name || model.id}`,
+      error: '',
+    })
+  },
+
+  toggleManualModelInput() {
+    this.setData({ showManualModelInput: !this.data.showManualModelInput })
+  },
+
+  fetchModels() {
+    const draft = this.data.draft
+    if (!draft.endpoint?.trim()) {
+      this.setData({ error: '请先填写 Base URL' })
+      return
+    }
+    this.setData({ isFetchingModels: true, notice: '', error: '' })
+    callFunction('modelProfiles', { action: 'discover', profile: { ...draft, apiProtocol, apiPath } })
+      .then((result) => {
+        const models = normalizeModels(result.availableModels || result.models || result)
+        if (!models.length) throw new Error('没有拉取到可选模型')
+        this.setData({
+          modelOptions: models,
+          modelIndex: models.findIndex((item) => item.id === draft.model),
+          currentModelLabel: modelPickerLabel(models, models.findIndex((item) => item.id === draft.model)),
+          currentModelText: draft.model || '未选择模型',
+          showManualModelInput: false,
+          isFetchingModels: false,
+          notice: `已拉取 ${models.length} 个模型，请选择模型 ID`,
+          error: '',
+        })
+      })
+      .catch((cloudError) => {
+        if (draft.keyMode === 'platform') {
+          this.setData({ isFetchingModels: false, error: cloudError.message || '平台 Key 模型拉取需要先更新云函数' })
+          return
+        }
+        this.fetchModelsFromClient(draft)
+      })
+  },
+
+  fetchModelsFromClient(draft) {
+    if (!draft.apiKey?.trim()) {
+      this.setData({ isFetchingModels: false, error: '使用我的 Key 拉取模型时，请先填写 API Key' })
+      return
+    }
+    wx.request({
+      url: modelsUrl(draft.endpoint),
+      method: 'GET',
+      header: { Authorization: `Bearer ${draft.apiKey}`, Accept: 'application/json' },
+      success: (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          this.setData({ isFetchingModels: false, error: `模型拉取失败：${res.statusCode}` })
+          return
+        }
+        const models = normalizeModels(res.data)
+        if (!models.length) {
+          this.setData({ isFetchingModels: false, error: '没有拉取到可选模型' })
+          return
+        }
+        this.setData({
+          modelOptions: models,
+          modelIndex: models.findIndex((item) => item.id === draft.model),
+          currentModelLabel: modelPickerLabel(models, models.findIndex((item) => item.id === draft.model)),
+          currentModelText: draft.model || '未选择模型',
+          showManualModelInput: false,
+          isFetchingModels: false,
+          notice: `已拉取 ${models.length} 个模型，请选择模型 ID`,
+          error: '',
+        })
+      },
+      fail: (error) => this.setData({ isFetchingModels: false, error: error.errMsg || '模型拉取失败' }),
+    })
   },
 
   edit(event) {
-    const channel = this.data.models.find((item) => item.id === event.currentTarget.dataset.id)
-    if (!channel) return
-    const draft = decorateDraftMetrics({ ...channel, apiKey: '', apiSecret: '' })
+    const model = this.data.models.find((item) => item.id === event.currentTarget.dataset.id)
+    if (!model) return
+    const keyMode = model.keyMode || 'platform'
     this.setData({
-      showEditor: true,
-      editorTitle: '编辑渠道',
-      draft,
-      apiKindIndex: Math.max(0, apiKindOptions.indexOf(draft.kind)),
-      currentApiKindLabel: apiKindLabels[Math.max(0, apiKindOptions.indexOf(draft.kind))],
-      discoveredModels: decorateDiscoveredModels(draft),
-      discoveredModelCount: availableModelsOf(draft).length,
-      selectedModelCount: selectedModelsOf(draft).length,
-      showModelModal: false,
-      notice: '',
-      error: '',
+      draft: { ...emptyDraft(), ...model, apiProtocol, apiPath, endpoint: normalizeEndpoint(model.endpoint), apiKey: '' },
+      nameIndex: 2,
+      currentNameLabel: nameOptions[2].label,
+      showCustomName: true,
+      kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === (model.kind || 'image'))),
+      currentKindLabel: currentKindOption(model.kind).label,
+      kindHint: currentKindOption(model.kind).hint,
+      keyModeIndex: Math.max(0, keyModeOptions.findIndex((item) => item.value === keyMode)),
+      currentKeyModeLabel: currentKeyModeOption(keyMode).label,
+      showUserKeyFields: keyMode === 'user',
+      keyModeHint: currentKeyModeOption(keyMode).hint,
+      modelOptions: [],
+      modelIndex: -1,
+      currentModelLabel: '选择模型：请选择',
+      currentModelText: model.model || '未选择模型',
+      showManualModelInput: false,
     })
   },
 
   async save() {
     try {
-      const saved = await callFunction('modelProfiles', { action: 'save', profile: normalizeDraft(this.data.draft) })
+      const saved = await callFunction('modelProfiles', { action: 'save', profile: { ...this.data.draft, apiProtocol, apiPath, endpoint: normalizeEndpoint(this.data.draft.endpoint) } })
       const state = loadState()
       const models = state.models || []
       const index = models.findIndex((model) => model.id === saved.id)
       if (index >= 0) models[index] = saved
       else models.push(saved)
       state.models = models
-      const expanded = expandModelProfiles(models)
-      state.defaultModelId = state.defaultModelId || expanded[0]?.id || saved.id
+      if ((saved.kind || 'image') === 'video') state.defaultVideoModelId = state.defaultVideoModelId || saved.id
+      else state.defaultModelId = state.defaultModelId || saved.id
       saveState(state)
-      this.setData({ ...pageModels(models), draft: decorateDraftMetrics(emptyDraft()), discoveredModels: [], discoveredModelCount: 0, selectedModelCount: 0, showEditor: false, showModelModal: false, notice: '渠道已保存并同步 API 池', error: '' })
+      this.setData({
+        models: models.map(decorateModel),
+        draft: emptyDraft(),
+        nameIndex: 0,
+        currentNameLabel: nameOptions[0].label,
+        kindIndex: 0,
+        currentKindLabel: kindOptions[0].label,
+        kindHint: kindOptions[0].hint,
+        showCustomName: false,
+        keyModeIndex: 0,
+        currentKeyModeLabel: keyModeOptions[0].label,
+        showUserKeyFields: false,
+        keyModeHint: keyModeOptions[0].hint,
+        modelOptions: [],
+        modelIndex: -1,
+        currentModelLabel: '选择模型：请选择',
+        currentModelText: 'agnes-image-2.1-flash',
+        showManualModelInput: false,
+        notice: '模型配置已保存',
+        error: '',
+      })
     } catch (error) {
       this.setData({ error: error.message || '保存失败' })
     }
@@ -270,70 +333,11 @@ Page({
 
   async testModel() {
     try {
-      const result = await callFunction('modelProfiles', { action: 'test', profile: normalizeDraft(this.data.draft) })
-      const nextDraft = decorateDraftMetrics({ ...this.data.draft, latencyMs: result.latencyMs, latencyLevel: result.latencyLevel, response_ms: String(result.latencyMs || ''), lastCheckedAt: new Date().toISOString(), status: result.ok ? 'connected' : 'failed' })
-      this.setData({ draft: nextDraft, notice: result.message, error: '' })
+      const result = await callFunction('modelProfiles', { action: 'test', profile: { ...this.data.draft, apiProtocol, apiPath, endpoint: normalizeEndpoint(this.data.draft.endpoint) } })
+      this.setData({ notice: result.message, error: '' })
     } catch (error) {
       this.setData({ error: error.message || '检测失败' })
     }
-  },
-
-  async discoverModels() {
-    try {
-      this.setData({ notice: '正在获取模型列表...', error: '' })
-      const saved = await callFunction('modelProfiles', { action: 'discover', profile: normalizeDraft(this.data.draft) })
-      const state = loadState()
-      const models = state.models || []
-      const index = models.findIndex((model) => model.id === saved.id)
-      if (index >= 0) models[index] = saved
-      else models.push(saved)
-      const expanded = expandModelProfiles(models)
-      state.models = models
-      state.defaultModelId = expanded[0]?.id || saved.id
-      saveState(state)
-      this.setData({
-        ...pageModels(models),
-        draft: decorateDraftMetrics(saved),
-        discoveredModels: decorateDiscoveredModels(saved),
-        discoveredModelCount: availableModelsOf(saved).length,
-        selectedModelCount: selectedModelsOf(saved).length,
-        showEditor: true,
-        showModelModal: true,
-        notice: `已获取 ${availableModelsOf(saved).length} 个模型并同步 API 池`,
-        error: '',
-      })
-    } catch (error) {
-      this.setData({ error: error.message || '获取模型列表失败', notice: '' })
-    }
-  },
-
-  toggleDiscoveredModel(event) {
-    const modelId = event.currentTarget.dataset.id
-    const draft = this.data.draft
-    const selected = new Set(selectedModelsOf(draft))
-    if (selected.has(modelId)) selected.delete(modelId)
-    else selected.add(modelId)
-    const selectedModels = Array.from(selected)
-    const nextDraft = decorateDraftMetrics({ ...draft, selectedModels, selected_models: selectedModels })
-    this.setData({ draft: nextDraft, discoveredModels: decorateDiscoveredModels(nextDraft), selectedModelCount: selectedModels.length })
-  },
-
-  openModelModal() {
-    if (!this.data.discoveredModels.length) return
-    this.setData({ showModelModal: true })
-  },
-
-  closeModelModal() {
-    this.setData({ showModelModal: false })
-  },
-
-  setDefaultDiscoveredModel(event) {
-    const modelId = event.currentTarget.dataset.id
-    const profileId = this.data.draft.id
-    const state = loadState()
-    state.defaultModelId = `${profileId}-${modelId}`
-    saveState(state)
-    this.setData({ notice: '默认模型已更新', error: '' })
   },
 
   async remove(event) {
@@ -342,6 +346,6 @@ Page({
     const state = loadState()
     state.models = (state.models || []).filter((model) => model.id !== id)
     saveState(state)
-    this.setData(pageModels(state.models))
+    this.setData({ models: state.models.map(decorateModel) })
   },
 })

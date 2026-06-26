@@ -1,5 +1,5 @@
 page {
-  background: #f3f6fb;
+  background: #eef3f7;
   color: #0f172a;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
 }
@@ -21,22 +21,24 @@ image {
 
 .section {
   background: #ffffff;
+  border: 1rpx solid #dfe7ef;
   border-radius: 16rpx;
   padding: 28rpx;
   margin-bottom: 24rpx;
-  box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.06);
+  box-shadow: 0 10rpx 28rpx rgba(31, 41, 55, 0.06);
 }
 
 .title {
-  font-size: 40rpx;
+  font-size: 38rpx;
   font-weight: 700;
   margin-bottom: 8rpx;
+  line-height: 1.22;
 }
 
 .subtitle,
 .muted {
   color: #64748b;
-  font-size: 26rpx;
+  font-size: 25rpx;
   line-height: 1.55;
 }
 
@@ -46,9 +48,10 @@ image {
 
 .label {
   display: block;
-  font-size: 26rpx;
+  font-size: 25rpx;
   color: #334155;
   margin-bottom: 10rpx;
+  font-weight: 600;
 }
 
 .input,
@@ -56,10 +59,10 @@ image {
 .picker-box {
   width: 100%;
   min-height: 84rpx;
-  border: 1rpx solid #cbd5e1;
-  border-radius: 14rpx;
+  border: 1rpx solid #d6e0ea;
+  border-radius: 12rpx;
   padding: 18rpx 20rpx;
-  background: #ffffff;
+  background: #fbfdff;
   font-size: 28rpx;
 }
 
@@ -80,9 +83,9 @@ image {
 .button-soft,
 .button-primary,
 .button-danger {
-  border-radius: 14rpx;
+  border-radius: 12rpx;
   padding: 16rpx 20rpx;
-  border: 1rpx solid #cbd5e1;
+  border: 1rpx solid #d6e0ea;
   background: #ffffff;
   color: #0f172a;
   font-size: 26rpx;
@@ -91,8 +94,8 @@ image {
 
 .chip.active,
 .button-primary {
-  border-color: #2563eb;
-  background: #2563eb;
+  border-color: #1d4ed8;
+  background: #1d4ed8;
   color: #ffffff;
 }
 
@@ -103,10 +106,10 @@ image {
 
 .card {
   width: calc(50% - 7rpx);
-  border: 1rpx solid #dbe2ea;
-  border-radius: 16rpx;
+  border: 1rpx solid #dfe7ef;
+  border-radius: 14rpx;
   padding: 18rpx;
-  background: #ffffff;
+  background: #fbfdff;
 }
 
 .preview {

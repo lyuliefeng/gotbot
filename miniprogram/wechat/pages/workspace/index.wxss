@@ -1,8 +1,244 @@
-.half {
-  width: calc(50% - 7rpx);
+.workspace-hero {
+  padding: 34rpx 30rpx 30rpx;
+  margin-bottom: 24rpx;
+  border: 1rpx solid #d7e3ec;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 12rpx 30rpx rgba(31, 41, 55, 0.06);
+}
+
+.eyebrow {
+  margin-bottom: 10rpx;
+  color: #0f766e;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.compact-title {
+  font-size: 32rpx;
+}
+
+.tool-section {
+  padding-top: 24rpx;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18rpx;
+  margin-top: 24rpx;
+}
+
+.tool-card {
+  min-height: 196rpx;
+  padding: 22rpx;
+  border: 1rpx solid #dbe5ee;
+  border-radius: 14rpx;
+  background: #fbfdff;
+  text-align: left;
+  box-shadow: none;
+}
+
+.tool-card.active {
+  border-color: #1d4ed8;
+  background: #f3f8ff;
+}
+
+.tool-card::after {
+  border: 0;
+}
+
+.tool-badge {
+  display: inline-flex;
+  min-width: 88rpx;
+  height: 42rpx;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16rpx;
+  border-radius: 999rpx;
+  background: #e7f5f2;
+  color: #0f766e;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.tool-card.active .tool-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tool-title {
+  color: #0f172a;
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.tool-desc {
+  margin-top: 10rpx;
+  color: #64748b;
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+
+.composer-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(15, 23, 42, 0.46);
+}
+
+.composer-panel {
+  position: relative;
+  width: 100%;
+  max-height: 90vh;
+  padding: 30rpx 28rpx 52rpx;
+  border-radius: 22rpx 22rpx 0 0;
+  background: #ffffff;
+  overflow-y: auto;
+}
+
+.composer-panel > view,
+.composer-panel > button,
+.composer-panel > picker,
+.composer-panel > textarea,
+.composer-panel > input {
+  position: relative;
+  z-index: 1;
+}
+
+.reference-backdrop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.3;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.reference-backdrop::after {
+  border: 0;
+}
+
+.composer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.close-button {
+  width: 64rpx;
+  height: 64rpx;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 42rpx;
+  line-height: 60rpx;
+}
+
+.close-button::after {
+  border: 0;
+}
+
+.composer-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14rpx;
+  margin-top: 24rpx;
+}
+
+.meta-item {
+  min-height: 104rpx;
+  padding: 16rpx;
+  border: 1rpx solid #e0e8f0;
+  border-radius: 12rpx;
+  background: #f8fbfd;
+}
+
+.meta-label {
+  color: #64748b;
+  font-size: 22rpx;
+  line-height: 1.2;
+}
+
+.meta-value {
+  margin-top: 10rpx;
+  color: #0f172a;
+  font-size: 25rpx;
+  font-weight: 700;
+  line-height: 1.28;
+  word-break: break-word;
+}
+
+.small-textarea {
+  height: 132rpx;
+}
+
+.inline-button {
+  margin-top: 12rpx;
+}
+
+.polish-wide-button {
+  width: 100%;
+  margin-top: 12rpx;
+  padding: 16rpx 0;
+  border: 1rpx solid #badfd7;
+  border-radius: 12rpx;
+  background: #effaf7;
+  color: #0f766e;
+  font-size: 26rpx;
+  line-height: 1.2;
+}
+
+.polish-wide-button::after {
+  border: 0;
 }
 
 .button-primary {
   margin-top: 24rpx;
   width: 100%;
+  height: 88rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.reference-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150rpx;
+  gap: 14rpx;
+  align-items: stretch;
+}
+
+.reference-button {
+  min-height: 150rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reference-preview {
+  width: 150rpx;
+  height: 150rpx;
+  border: 1rpx solid #dbe5ee;
+  border-radius: 12rpx;
+  background: #eef3f7;
 }

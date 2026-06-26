@@ -6,10 +6,15 @@ const { resolveTaskAssetUrls } = require('../../utils/assets')
 Page({
   data: {
     tasks: [],
-    visibleTasks: [],
-    taskCountText: '共 0 个任务',
+    visibleAssets: [],
+    imageCountText: '图片 0',
+    videoCountText: '视频 0',
+    activeLibrary: 'image',
+    imageTabClass: 'active',
+    videoTabClass: '',
     favoriteFilterClass: '',
-    hasTasks: false,
+    hasVisibleAssets: false,
+    emptyText: '还没有图片资产，去创作页生成第一张图片。',
     modeLabels,
     onlyFavorite: false,
     error: '',
@@ -38,24 +43,43 @@ Page({
     this.setData({ onlyFavorite, favoriteFilterClass: onlyFavorite ? 'active' : '' }, () => this.applyTasks(this.data.tasks))
   },
 
+  switchLibrary(event) {
+    const library = event.currentTarget.dataset.library || 'image'
+    this.setData({
+      activeLibrary: library,
+      imageTabClass: library === 'image' ? 'active' : '',
+      videoTabClass: library === 'video' ? 'active' : '',
+    }, () => this.applyTasks(this.data.tasks))
+  },
+
   applyTasks(tasks) {
     const normalized = (tasks || []).map((task) => ({
       ...task,
       modeLabel: modeLabels[task.mode] || task.mode,
+      assetKind: task.assetKind || (task.mode === 'txt2video' || task.mode === 'img2video' ? 'video' : 'image'),
       assets: (task.assets || []).map((asset) => ({
         ...asset,
+        taskId: task.id,
+        taskPrompt: task.prompt,
+        taskModeLabel: modeLabels[task.mode] || task.mode,
+        taskCreatedAt: task.createdAt,
+        assetKind: asset.assetKind || task.assetKind || (task.mode === 'txt2video' || task.mode === 'img2video' ? 'video' : 'image'),
         assetUrl: asset.assetUrl || asset.remoteUrl || asset.dataUrl || '',
         favoriteText: asset.isFavorite ? '取消收藏' : '收藏',
       })),
     }))
-    const visibleTasks = this.data.onlyFavorite
-      ? normalized.map((task) => ({ ...task, assets: task.assets.filter((asset) => asset.isFavorite) })).filter((task) => task.assets.length)
-      : normalized
+    const allAssets = normalized.reduce((items, task) => items.concat(task.assets || []), [])
+    const imageAssets = allAssets.filter((asset) => asset.assetKind === 'image')
+    const videoAssets = allAssets.filter((asset) => asset.assetKind === 'video')
+    const activeAssets = this.data.activeLibrary === 'video' ? videoAssets : imageAssets
+    const visibleAssets = this.data.onlyFavorite ? activeAssets.filter((asset) => asset.isFavorite) : activeAssets
     this.setData({
       tasks: normalized,
-      visibleTasks,
-      taskCountText: `共 ${normalized.length} 个任务`,
-      hasTasks: normalized.length > 0,
+      visibleAssets,
+      imageCountText: `图片 ${imageAssets.length}`,
+      videoCountText: `视频 ${videoAssets.length}`,
+      hasVisibleAssets: visibleAssets.length > 0,
+      emptyText: this.data.activeLibrary === 'video' ? '还没有视频资产，去创作页生成第一段视频。' : '还没有图片资产，去创作页生成第一张图片。',
     })
   },
 

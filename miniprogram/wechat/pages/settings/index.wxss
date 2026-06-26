@@ -1,303 +1,145 @@
-.channel-list-head {
+.settings-hero {
+  padding: 34rpx 30rpx 30rpx;
+  margin-bottom: 24rpx;
+  border: 1rpx solid #d7e3ec;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 12rpx 30rpx rgba(31, 41, 55, 0.06);
+}
+
+.eyebrow {
+  margin-bottom: 10rpx;
+  color: #0f766e;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.config-section {
+  padding-top: 24rpx;
+}
+
+.section-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18rpx;
+  margin-bottom: 10rpx;
 }
 
-.channel-shell {
-  padding-bottom: 18rpx;
+.compact-title {
+  font-size: 32rpx;
 }
 
-.channel-list-head .title,
-.channel-list-head .subtitle {
-  min-width: 0;
-}
-
-.editor-section {
-  border: 2rpx solid #bfdbfe;
-}
-
-.empty-state {
-  margin-top: 24rpx;
-  border: 1rpx dashed #cbd5e1;
-  border-radius: 12rpx;
-  padding: 28rpx;
-  color: #64748b;
-  font-size: 26rpx;
-  text-align: center;
-}
-
-.channel-row {
-  border-top: 1rpx solid #e2e8f0;
-  padding: 18rpx 0;
-}
-
-.channel-row.disabled {
-  opacity: 0.68;
-}
-
-.channel-head,
-.switch-row,
-.discovery-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-}
-
-.channel-name,
-.discovery-name {
-  min-width: 0;
-  font-size: 30rpx;
-  font-weight: 650;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.channel-main {
-  min-width: 0;
-  flex: 1;
-}
-
-.channel-url {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.channel-badges,
-.row-actions,
-.toolbar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10rpx;
-}
-
-.channel-badges {
-  justify-content: flex-end;
-  flex-shrink: 0;
-}
-
-.channel-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14rpx;
-  margin-top: 8rpx;
-}
-
-.status-pill {
-  flex-shrink: 0;
-  border-radius: 999rpx;
-  padding: 8rpx 16rpx;
-  background: #dcfce7;
-  color: #166534;
-  font-size: 22rpx;
-}
-
-.kind-pill {
-  flex-shrink: 0;
-  border-radius: 999rpx;
-  padding: 8rpx 16rpx;
-  background: #e0f2fe;
-  color: #075985;
-  font-size: 22rpx;
-}
-
-.channel-row.disabled .status-pill {
-  background: #f1f5f9;
-  color: #64748b;
-}
-
-.switch-row {
-  margin-top: 20rpx;
-  padding: 18rpx 0;
-  border-top: 1rpx solid #e2e8f0;
-  border-bottom: 1rpx solid #e2e8f0;
-}
-
-.inline-label {
-  margin-bottom: 2rpx;
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  word-break: break-all;
+.model-item {
+  margin-top: 18rpx;
+  padding: 20rpx;
+  border: 1rpx solid #dfe7ef;
+  border-radius: 14rpx;
+  background: #fbfdff;
 }
 
 .actions {
   margin-top: 18rpx;
 }
 
-.row-actions {
-  margin-top: 12rpx;
-}
-
-.toolbar-actions {
-  margin-top: 16rpx;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14rpx;
-  margin-top: 16rpx;
-}
-
-.form-grid .field {
-  margin-top: 0;
-}
-
-.key-area {
-  height: 112rpx;
-}
-
-.note-area {
-  height: 104rpx;
-}
-
-.compact {
-  flex-shrink: 0;
-  min-width: 148rpx;
-  padding-left: 18rpx;
-  padding-right: 18rpx;
-}
-
-.model-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  margin-top: 18rpx;
-  padding-top: 18rpx;
-  border-top: 1rpx solid #e2e8f0;
-}
-
-.subhead {
-  padding-top: 20rpx;
-  font-size: 28rpx;
-  font-weight: 650;
-}
-
-.compact-subhead {
-  padding-top: 0;
-}
-
-.discovery-meta {
-  min-width: 0;
-  width: 100%;
-  flex: 1;
-}
-
-.discovery-name {
-  white-space: normal;
-  word-break: break-all;
-}
-
-.latency-row {
-  margin-top: 0;
-  font-size: 24rpx;
+.hint {
+  margin-top: 10rpx;
   color: #64748b;
-  flex-shrink: 0;
+  font-size: 24rpx;
+  line-height: 1.45;
 }
 
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.42);
-  padding: 24rpx;
-}
-
-.model-dialog {
-  width: 100%;
-  max-height: 78vh;
-  border-radius: 18rpx;
-  background: #ffffff;
-  padding: 24rpx;
-  box-shadow: 0 24rpx 70rpx rgba(15, 23, 42, 0.24);
-}
-
-.dialog-head,
-.dialog-actions,
-.model-option,
-.model-option-side {
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
-}
-
-.dialog-head {
-  justify-content: space-between;
-  padding-bottom: 18rpx;
-  border-bottom: 1rpx solid #e2e8f0;
-}
-
-.dialog-title {
-  font-size: 34rpx;
+.channel-picker {
+  border-color: #badfd7;
+  background: #f3fbf8;
+  color: #0f766e;
   font-weight: 700;
 }
 
-.model-modal-scroll {
-  max-height: 52vh;
+.inline-actions {
+  display: flex;
+  gap: 12rpx;
+  align-items: center;
 }
 
-.model-option {
-  justify-content: space-between;
-  padding: 18rpx 0;
-  border-bottom: 1rpx solid #eef2f7;
+.inline-input {
+  flex: 1;
+  min-width: 0;
 }
 
-.model-option.selected .discovery-name {
+.mini-button {
+  width: 132rpx;
+  min-width: 132rpx;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.model-picker {
+  margin-top: 12rpx;
+}
+
+.selected-model {
+  min-height: 76rpx;
+  border: 1rpx solid #dbe5ee;
+  border-radius: 12rpx;
+  background: #f8fbfd;
+  color: #0f172a;
+  font-size: 28rpx;
+  line-height: 76rpx;
+  padding: 0 20rpx;
+  word-break: break-all;
+}
+
+.fetch-button {
+  margin-top: 12rpx;
+}
+
+.link-button {
+  margin-top: 10rpx;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #2563eb;
+  font-size: 24rpx;
+  line-height: 44rpx;
+  text-align: left;
 }
 
-.model-option-side {
-  flex-shrink: 0;
-  flex-direction: column;
-  align-items: flex-end;
+.link-button::after {
+  border: 0;
 }
 
-.check-pill {
-  min-width: 116rpx;
+.manual-model-input {
+  margin-top: 10rpx;
+}
+
+.model-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+  margin-bottom: 8rpx;
+}
+
+.model-name {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 29rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.model-kind {
+  min-width: 72rpx;
+  height: 40rpx;
+  padding: 0 14rpx;
   border-radius: 999rpx;
-  padding: 8rpx 14rpx;
-  background: #f1f5f9;
-  color: #64748b;
+  background: #e7f5f2;
+  color: #0f766e;
   font-size: 22rpx;
+  font-weight: 700;
+  line-height: 40rpx;
   text-align: center;
-}
-
-.model-option.selected .check-pill {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.mini {
-  padding: 10rpx 16rpx;
-  font-size: 22rpx;
-}
-
-.dialog-actions {
-  justify-content: flex-end;
-  padding-top: 18rpx;
-}
-
-.latency-green {
-  color: #16a34a;
-}
-
-.latency-yellow {
-  color: #ca8a04;
-}
-
-.latency-red {
-  color: #dc2626;
 }

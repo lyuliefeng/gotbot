@@ -3,7 +3,14 @@ const { callFunction } = require('../../utils/cloud')
 const { loadState, saveState } = require('../../utils/state')
 const { validateGenerationInput } = require('../../utils/validators')
 const { resolveAssetUrls } = require('../../utils/assets')
-const { expandModelProfiles } = require('../../utils/models')
+
+function decorateTools(activeId) {
+  return tools.map((tool) => ({
+    ...tool,
+    modeLabel: modeLabels[tool.mode] || tool.title,
+    activeClass: tool.id === activeId ? 'active' : '',
+  }))
+}
 
 Page({
   data: {
@@ -12,11 +19,12 @@ Page({
     modeLabels,
     activeToolId: tools[0].id,
     activeTool: tools[0],
+    allModels: [],
     models: [],
-    toolTabs: tools.map((tool, index) => ({ ...tool, activeClass: index === 0 ? 'active' : '' })),
+    toolTabs: decorateTools(tools[0].id),
     modelIndex: 0,
     selectedModelName: '暂无模型，请先去设置',
-    prompt: tools[0].promptSeed,
+    prompt: '',
     negativePrompt: tools[0].negativeSeed || '低清晰度、变形、文字水印、错误构图',
     width: tools[0].width,
     height: tools[0].height,
@@ -24,38 +32,92 @@ Page({
     steps: 28,
     seed: 128409,
     referenceImage: '',
+    referenceBackdropVisible: false,
     currentTask: null,
+    isVideoResult: false,
     currentAssets: [],
+    composerOpen: false,
+    composerTitle: tools[0].title,
+    composerSubtitle: '图片通道 · 自动匹配图像模型',
+    resolutionOptions: ['1024 x 1024', '1080 x 1440', '1280 x 720', '768 x 768'],
+    resolutionIndex: 0,
     loading: false,
+    polishingPrompt: false,
+    polishingNegativePrompt: false,
     generateButtonText: '开始生成',
+    polishPromptText: 'AI 提示词润色',
+    polishNegativePromptText: 'AI 反向提示词润色',
     error: '',
     notice: '',
   },
 
   onShow() {
     const state = loadState()
-    const models = expandModelProfiles(state.models || [])
-    const modelIndex = Math.max(0, models.findIndex((model) => model.id === state.defaultModelId))
+    this.applyModelsForTool(this.data.activeTool, state.models || [], state)
+  },
+
+  kindLabel(kind) {
+    return kind === 'video' ? '视频' : '图片'
+  },
+
+  emptyModelText(kind) {
+    return kind === 'video' ? '暂无视频模型，请先去设置' : '暂无图像模型，请先去设置'
+  },
+
+  defaultModelKey(kind) {
+    return kind === 'video' ? 'defaultVideoModelId' : 'defaultModelId'
+  },
+
+  applyModelsForTool(tool, allModels, state) {
+    const modelKind = tool.modelKind || 'image'
+    const models = (allModels || []).filter((model) => (model.kind || 'image') === modelKind)
+    const defaultId = state[this.defaultModelKey(modelKind)]
+    const foundIndex = models.findIndex((model) => model.id === defaultId)
+    const modelIndex = foundIndex >= 0 ? foundIndex : 0
     const selectedModel = models[modelIndex]
     this.setData({
+      allModels: allModels || [],
       models,
       modelIndex,
-      selectedModelName: selectedModel ? selectedModel.name : '暂无模型，请先去设置',
+      selectedModelName: selectedModel ? selectedModel.name : this.emptyModelText(modelKind),
+      composerSubtitle: `${this.kindLabel(modelKind)}通道 · 自动匹配${this.kindLabel(modelKind)}模型`,
     })
   },
 
   selectTool(event) {
     const tool = tools.find((item) => item.id === event.currentTarget.dataset.id) || tools[0]
+    const state = loadState()
+    const resolutionLabel = `${tool.width} x ${tool.height}`
+    const resolutionIndex = Math.max(0, this.data.resolutionOptions.indexOf(resolutionLabel))
     this.setData({
       activeToolId: tool.id,
       activeTool: tool,
-      toolTabs: tools.map((item) => ({ ...item, activeClass: item.id === tool.id ? 'active' : '' })),
-      prompt: this.data.prompt || tool.promptSeed,
+      toolTabs: decorateTools(tool.id),
+      composerOpen: true,
+      composerTitle: tool.title,
+      prompt: '',
       negativePrompt: tool.negativeSeed || this.data.negativePrompt,
       width: tool.width,
       height: tool.height,
+      resolutionIndex,
+      batchSize: tool.modelKind === 'video' ? 1 : this.data.batchSize,
+      referenceBackdropVisible: Boolean(tool.referenceRequired && this.data.referenceImage),
       error: '',
     })
+    this.applyModelsForTool(tool, state.models || this.data.allModels || [], state)
+  },
+
+  closeComposer() {
+    this.setData({ composerOpen: false, error: '', notice: '' })
+  },
+
+  noop() {},
+
+  onResolutionChange(event) {
+    const index = Number(event.detail.value)
+    const label = this.data.resolutionOptions[index] || this.data.resolutionOptions[0]
+    const parts = label.split(' x ').map((item) => Number(item))
+    this.setData({ resolutionIndex: index, width: parts[0], height: parts[1] })
   },
 
   selectPrompt(event) {
@@ -67,29 +129,70 @@ Page({
     const index = Number(event.detail.value)
     const model = this.data.models[index]
     const state = loadState()
-    state.defaultModelId = model && model.id
+    const modelKind = this.data.activeTool.modelKind || 'image'
+    state[this.defaultModelKey(modelKind)] = model && model.id
     saveState(state)
-    this.setData({ modelIndex: index, selectedModelName: model ? model.name : '暂无模型，请先去设置' })
+    this.setData({ modelIndex: index, selectedModelName: model ? model.name : this.emptyModelText(modelKind) })
   },
 
   onInput(event) {
     this.setData({ [event.currentTarget.dataset.field]: event.detail.value })
   },
 
+  async polishPrompt() {
+    if (this.data.polishingPrompt) return
+    const text = (this.data.prompt || '').trim()
+    try {
+      this.setData({ polishingPrompt: true, polishPromptText: '润色中', error: '', notice: '' })
+      const result = await callFunction('promptPolish', {
+        action: 'polish',
+        type: 'prompt',
+        text,
+        toolTitle: this.data.activeTool.title,
+      })
+      this.setData({ prompt: result.text || text, notice: `已用 ${result.model || 'agnes-2.0-flash'} 润色提示词` })
+    } catch (error) {
+      this.setData({ error: error.message || '提示词润色失败' })
+    } finally {
+      this.setData({ polishingPrompt: false, polishPromptText: 'AI 提示词润色' })
+    }
+  },
+
+  async polishNegativePrompt() {
+    if (this.data.polishingNegativePrompt) return
+    const text = (this.data.negativePrompt || '').trim()
+    try {
+      this.setData({ polishingNegativePrompt: true, polishNegativePromptText: '润色中', error: '', notice: '' })
+      const result = await callFunction('promptPolish', {
+        action: 'polish',
+        type: 'negative',
+        text,
+        toolTitle: this.data.activeTool.title,
+      })
+      this.setData({ negativePrompt: result.text || text, notice: `已用 ${result.model || 'agnes-2.0-flash'} 润色反向提示词` })
+    } catch (error) {
+      this.setData({ error: error.message || '反向提示词润色失败' })
+    } finally {
+      this.setData({ polishingNegativePrompt: false, polishNegativePromptText: 'AI 反向提示词润色' })
+    }
+  },
+
   chooseReference() {
     wx.chooseMedia({ count: 1, mediaType: ['image'] })
       .then((res) => {
         const file = res.tempFiles && res.tempFiles[0]
-        if (file) this.setData({ referenceImage: file.tempFilePath })
+        if (file) this.setData({ referenceImage: file.tempFilePath, referenceBackdropVisible: true })
       })
       .catch(() => undefined)
   },
 
   buildInput() {
     const model = this.data.models[this.data.modelIndex] || this.data.models[0]
+    const assetKind = this.data.activeTool.modelKind === 'video' ? 'video' : 'image'
     return {
       mode: this.data.activeTool.mode,
-      prompt: [this.data.prompt, this.data.activeTool.promptSeed].filter(Boolean).join(', '),
+      assetKind,
+      prompt: this.data.prompt || this.data.activeTool.promptSeed,
       negativePrompt: this.data.negativePrompt,
       modelId: model ? model.id : '',
       width: Number(this.data.width),
@@ -109,11 +212,13 @@ Page({
       validateGenerationInput(input)
       this.setData({ loading: true, generateButtonText: '生成中', error: '', notice: '' })
       const task = await callFunction('generationTasks', { action: 'create', input })
-      const currentAssets = await resolveAssetUrls(task.assets || [])
+      const assetKind = input.assetKind || (this.data.activeTool.modelKind === 'video' ? 'video' : 'image')
+      const currentAssets = (await resolveAssetUrls(task.assets || [])).map((asset) => ({ ...asset, assetKind: asset.assetKind || assetKind }))
+      const storedTask = { ...task, assetKind: task.assetKind || assetKind, assets: currentAssets }
       const state = loadState()
-      state.tasks = [{ ...task, assets: currentAssets }].concat((state.tasks || []).filter((item) => item.id !== task.id))
+      state.tasks = [storedTask].concat((state.tasks || []).filter((item) => item.id !== task.id))
       saveState(state)
-      this.setData({ currentTask: { ...task, assets: currentAssets }, currentAssets, notice: `已生成 ${currentAssets.length} 个结果` })
+      this.setData({ composerOpen: false, currentTask: storedTask, currentAssets, isVideoResult: assetKind === 'video', notice: `已生成 ${currentAssets.length} 个结果` })
     } catch (error) {
       this.setData({ error: error.message || '生成失败' })
     } finally {

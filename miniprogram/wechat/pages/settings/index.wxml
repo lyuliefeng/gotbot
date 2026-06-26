@@ -1,102 +1,85 @@
 <view class="page">
-  <view class="section channel-shell">
-    <view class="channel-list-head">
-      <view>
-        <view class="title">渠道管理</view>
-        <view class="subtitle">上游供应商、模型拉取和 API 池同步。</view>
-      </view>
-      <button class="button-primary compact" bindtap="openAddChannel">+ 添加</button>
-    </view>
-
-    <view wx:if="{{hasNoChannels}}" class="empty-state">还没有渠道，先添加一个上游供应商。</view>
-    <view wx:for="{{models}}" wx:key="id" class="channel-row {{item.enabledClass}}">
-      <view class="channel-head">
-        <view class="channel-main">
-          <view class="channel-name">{{item.displayName}}</view>
-          <view class="muted mono channel-url">{{item.base_url}}</view>
-        </view>
-        <view class="channel-badges">
-          <view class="kind-pill">{{item.kindLabel}}</view>
-          <view class="status-pill">{{item.enabledText}}</view>
-        </view>
-      </view>
-      <view class="channel-foot">
-        <view class="muted">{{item.summary}}</view>
-        <view class="latency-row {{item.latencyBadgeClass}}">{{item.latencyLabel}}</view>
-      </view>
-      <view class="row-actions">
-        <button class="button-soft" data-id="{{item.id}}" bindtap="edit">编辑</button>
-        <button class="button-danger" data-id="{{item.id}}" bindtap="remove">删除</button>
-      </view>
-    </view>
+  <view class="settings-hero">
+    <view class="eyebrow">Model Hub</view>
+    <view class="title">模型配置</view>
+    <view class="subtitle">配置图片或视频通道。创作工作台会按通道自动匹配模型。</view>
   </view>
 
-  <view wx:if="{{showEditor}}" class="section editor-section">
-    <view class="channel-list-head">
-      <view>
-        <view class="title">{{editorTitle}}</view>
-        <view class="subtitle">填写 URL 与 Key，先测速，再获取模型列表。</view>
-      </view>
-      <button class="button-soft compact" bindtap="cancelEdit">关闭</button>
+  <view class="section config-section">
+
+    <view class="field">
+      <view class="label">名称</view>
+      <picker mode="selector" range="{{nameOptions}}" value="{{nameIndex}}" bindchange="onNameModeChange">
+        <view class="picker-box">{{currentNameLabel}}</view>
+      </picker>
+    </view>
+    <view wx:if="{{showCustomName}}" class="field">
+      <view class="label">自定义名称</view>
+      <input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="例如：公司图像模型" />
     </view>
 
-    <view class="form-grid">
-      <view class="field"><view class="label">渠道名称</view><input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="Agnes / OpenAI" /></view>
-      <view class="field"><view class="label">API 类型</view><picker mode="selector" range="{{apiKindLabels}}" value="{{apiKindIndex}}" bindchange="onApiKindChange"><view class="picker-box">{{currentApiKindLabel}}</view></picker></view>
-      <view class="field"><view class="label">URL</view><input class="input mono" value="{{draft.base_url}}" bindinput="onBaseUrlInput" placeholder="https://example.com/v1" /></view>
-      <view class="field wide"><view class="label">API Key</view><textarea class="textarea key-area mono" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="填入上游供应商 API Key；编辑时留空会保留原 Key" /></view>
-      <view class="field wide"><view class="label">备注</view><textarea class="textarea note-area" value="{{draft.notes}}" data-field="notes" bindinput="onInput" placeholder="额度、账号、用途等备注" /></view>
-    </view>
-    <view class="switch-row">
-      <view>
-        <view class="label inline-label">渠道状态</view>
-        <view class="muted">{{draft.enabledText}}</view>
-      </view>
-      <switch checked="{{draft.enabled}}" bindchange="onEnabledChange" />
+    <view class="field">
+      <view class="label">模型类型</view>
+      <picker mode="selector" range="{{kindLabels}}" value="{{kindIndex}}" bindchange="onKindChange">
+        <view class="picker-box channel-picker">{{currentKindLabel}}</view>
+      </picker>
+      <view class="hint">{{kindHint}}</view>
     </view>
 
-    <view class="toolbar-actions">
-      <button class="button-primary" bindtap="save">保存渠道</button>
-      <button class="button-soft" bindtap="testModel">URL 测速</button>
-      <button class="button-soft" bindtap="discoverModels">获取模型列表</button>
+    <view class="field">
+      <view class="label">Key 来源</view>
+      <picker mode="selector" range="{{keyModeLabels}}" value="{{keyModeIndex}}" bindchange="onKeyModeChange">
+        <view class="picker-box">{{currentKeyModeLabel}}</view>
+      </picker>
+      <view class="hint">{{keyModeHint}}</view>
     </view>
-    <view wx:if="{{draft.latencyMs}}" class="latency-row {{draft.latencyClass}}">当前延迟：{{draft.latencyMs}}ms</view>
+
+    <view class="field">
+      <view class="label">接口地址</view>
+      <input class="input" value="{{draft.endpoint}}" data-field="endpoint" bindinput="onInput" placeholder="https://api.example.com" />
+      <view class="hint">示例：https://apihub.agnes-ai.com。接口路径已固定，不需要填写 API Path。</view>
+    </view>
+
+    <view wx:if="{{showUserKeyFields}}" class="field">
+      <view class="label">API Key</view>
+      <input class="input" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="sk-..." />
+    </view>
+
+    <view class="field">
+      <view class="label">模型 ID</view>
+      <view class="selected-model">{{currentModelText}}</view>
+      <button class="button-soft fetch-button" loading="{{isFetchingModels}}" bindtap="fetchModels">拉取模型列表</button>
+      <picker wx:if="{{modelOptions.length}}" mode="selector" range="{{modelOptions}}" range-key="name" value="{{modelIndex}}" bindchange="onModelChange">
+        <view class="picker-box model-picker">{{currentModelLabel}}</view>
+      </picker>
+      <button class="link-button" bindtap="toggleManualModelInput">没有拉取到？手动填写模型 ID</button>
+      <input wx:if="{{showManualModelInput}}" class="input manual-model-input" value="{{draft.model}}" data-field="model" bindinput="onInput" placeholder="例如：agnes-image-2.1-flash" />
+    </view>
+
+    <view class="actions">
+      <button class="button-primary" bindtap="save">保存模型</button>
+      <button class="button-soft" bindtap="testModel">检测连接</button>
+    </view>
     <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
     <view wx:if="{{error}}" class="danger-text">{{error}}</view>
-
-    <view wx:if="{{discoveredModels.length}}" class="model-summary">
-      <view>
-        <view class="subhead compact-subhead">模型列表</view>
-        <view class="muted">已获取 {{discoveredModelCount}} 个，已启用 {{selectedModelCount}} 个</view>
-      </view>
-      <button class="button-soft compact" bindtap="openModelModal">选择模型</button>
-    </view>
   </view>
 
-  <view wx:if="{{showModelModal}}" class="modal-mask" bindtap="closeModelModal">
-    <view class="model-dialog" catchtap="noop">
-      <view class="dialog-head">
-        <view>
-          <view class="dialog-title">选择模型</view>
-          <view class="muted">已获取 {{discoveredModelCount}} 个，已启用 {{selectedModelCount}} 个</view>
-        </view>
-        <button class="button-soft compact" bindtap="closeModelModal">关闭</button>
+  <view class="section">
+    <view class="section-heading">
+      <view>
+        <view class="title compact-title">已配置模型</view>
+        <view class="subtitle">图片和视频模型会在创作时自动分流。</view>
       </view>
-      <scroll-view class="model-modal-scroll" scroll-y="true">
-        <view wx:for="{{discoveredModels}}" wx:key="id" class="model-option {{item.rowClass}}" data-id="{{item.id}}" bindtap="toggleDiscoveredModel">
-          <view class="discovery-meta">
-            <view class="discovery-name">{{item.name}}</view>
-            <view class="muted mono">{{item.id}}</view>
-          </view>
-          <view class="model-option-side">
-            <view class="check-pill">{{item.checkedText}}</view>
-            <button class="button-soft mini" data-id="{{item.id}}" catchtap="setDefaultDiscoveredModel">默认</button>
-          </view>
-        </view>
-      </scroll-view>
-      <view class="dialog-actions">
-        <button class="button-primary" bindtap="save">保存选择</button>
-        <button class="button-soft" bindtap="closeModelModal">完成</button>
+    </view>
+    <view wx:for="{{models}}" wx:key="id" class="model-item">
+      <view class="model-row-head">
+        <view class="model-name">{{item.name}}</view>
+        <view class="model-kind">{{item.kindLabel}}</view>
+      </view>
+      <view class="muted">{{item.summary}}</view>
+      <view class="actions">
+        <button class="button-soft" data-id="{{item.id}}" bindtap="edit">编辑</button>
+        <button class="button-danger" data-id="{{item.id}}" bindtap="remove">删除</button>
       </view>
     </view>
   </view>

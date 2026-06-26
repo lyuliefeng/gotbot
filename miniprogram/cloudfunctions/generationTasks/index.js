@@ -7,38 +7,7 @@ function hydrateProfile(profile) {
   return {
     ...profile,
     apiKey: profile.keyMode === 'platform' ? process.env.PLATFORM_IMAGE_API_KEY || '' : decryptText(profile.encryptedApiKey || ''),
-    apiSecret: profile.keyMode === 'platform' ? process.env.PLATFORM_IMAGE_API_SECRET || '' : decryptText(profile.encryptedApiSecret || ''),
   }
-}
-
-function resolveModelProfile(profiles, modelId) {
-  const enabledProfiles = profiles.filter((item) => item.enabled !== false)
-  const direct = enabledProfiles.find((item) => item.id === modelId)
-  if (direct) return direct
-  for (const profile of enabledProfiles) {
-    const available = Array.isArray(profile.availableModels)
-      ? profile.availableModels
-      : Array.isArray(profile.available_models)
-        ? profile.available_models
-        : []
-    const selected = Array.isArray(profile.selectedModels) && profile.selectedModels.length
-      ? profile.selectedModels
-      : Array.isArray(profile.selected_models) && profile.selected_models.length
-        ? profile.selected_models
-        : available.map((model) => model.id || model.name).filter(Boolean)
-    const selectedSet = new Set(selected)
-    const matched = available.find((model) => `${profile.id}-${model.id || model.name}` === modelId || model.id === modelId)
-    if (matched && (selectedSet.has(matched.id) || selectedSet.has(matched.name))) {
-      return {
-        ...profile,
-        id: modelId,
-        parentModelProfileId: profile.id,
-        name: matched.name || matched.id,
-        model: matched.id || matched.name,
-      }
-    }
-  }
-  return null
 }
 
 exports.main = async function main(event = {}, context = {}) {
@@ -51,12 +20,12 @@ exports.main = async function main(event = {}, context = {}) {
 
     if (event.action === 'create') {
       const profiles = await list('modelProfiles', (item) => item.openid === openid)
-      const model = hydrateProfile(resolveModelProfile(profiles, event.input.modelId) || {
+      const model = hydrateProfile(profiles.find((item) => item.id === event.input.modelId) || {
         id: 'platform-agnes-image',
         name: '平台 Agnes Image',
-        endpoint: 'https://apihub.agnes-ai.com/v1',
-        apiPath: 'images/generations',
-        apiProtocol: 'agnes-image',
+        endpoint: 'https://apihub.agnes-ai.com',
+        apiPath: 'v1/images/generations',
+        apiProtocol: 'openai-images',
         model: 'agnes-image-2.1-flash',
         keyMode: 'platform',
       })
