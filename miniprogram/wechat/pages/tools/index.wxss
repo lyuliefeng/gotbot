@@ -1,3 +1,64 @@
-.small {
+.tools-hero {
+  padding: 32rpx 28rpx;
+  margin-bottom: 24rpx;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 8rpx 22rpx rgba(15, 23, 42, 0.045);
+}
+
+.eyebrow {
+  margin-bottom: 10rpx;
+  color: #0f766e;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.tool-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16rpx;
+}
+
+.tool-item {
+  padding: 22rpx;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 14rpx;
+  background: #ffffff;
+  box-shadow: 0 6rpx 16rpx rgba(15, 23, 42, 0.035);
+}
+
+.tool-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+  margin-bottom: 10rpx;
+}
+
+.tool-name {
+  min-width: 0;
+  color: #0f172a;
   font-size: 30rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.tool-mode {
+  min-width: 96rpx;
+  height: 42rpx;
+  padding: 0 14rpx;
+  border-radius: 999rpx;
+  background: #e7f5f2;
+  color: #0f766e;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 42rpx;
+  text-align: center;
+}
+
+.button-soft {
+  width: 100%;
+  margin-top: 18rpx;
 }

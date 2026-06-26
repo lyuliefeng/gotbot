@@ -1,7 +1,62 @@
-.small {
+.prompts-hero {
+  padding: 32rpx 28rpx;
+  margin-bottom: 24rpx;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 8rpx 22rpx rgba(15, 23, 42, 0.045);
+}
+
+.eyebrow {
+  margin-bottom: 10rpx;
+  color: #0f766e;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.prompt-controls {
+  padding: 22rpx;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+
+.actions .button-soft {
+  padding-left: 8rpx;
+  padding-right: 8rpx;
+  font-size: 23rpx;
+  white-space: nowrap;
+}
+
+.prompt-card {
+  padding: 24rpx;
+  margin-bottom: 18rpx;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 14rpx;
+  background: #ffffff;
+  box-shadow: 0 6rpx 16rpx rgba(15, 23, 42, 0.035);
+}
+
+.prompt-title {
+  color: #0f172a;
   font-size: 30rpx;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.prompt-text {
+  margin-top: 12rpx;
+  color: #334155;
+  font-size: 26rpx;
+  line-height: 1.55;
 }
 
 .button-primary {
   margin-top: 18rpx;
+  width: 100%;
 }

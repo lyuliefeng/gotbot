@@ -1,10 +1,10 @@
 .settings-hero {
-  padding: 34rpx 30rpx 30rpx;
+  padding: 32rpx 28rpx;
   margin-bottom: 24rpx;
-  border: 1rpx solid #d7e3ec;
+  border: 1rpx solid #e2e8f0;
   border-radius: 16rpx;
   background: #ffffff;
-  box-shadow: 0 12rpx 30rpx rgba(31, 41, 55, 0.06);
+  box-shadow: 0 8rpx 22rpx rgba(15, 23, 42, 0.045);
 }
 
 .eyebrow {
@@ -34,9 +34,10 @@
 .model-item {
   margin-top: 18rpx;
   padding: 20rpx;
-  border: 1rpx solid #dfe7ef;
+  border: 1rpx solid #e2e8f0;
   border-radius: 14rpx;
-  background: #fbfdff;
+  background: #ffffff;
+  box-shadow: 0 6rpx 16rpx rgba(15, 23, 42, 0.035);
 }
 
 .actions {

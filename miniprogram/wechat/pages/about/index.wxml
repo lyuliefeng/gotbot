@@ -1,14 +1,17 @@
 <view class="page">
-  <view class="section">
+  <view class="about-hero">
+    <view class="eyebrow">About</view>
     <view class="title">关于小程序版</view>
     <view class="subtitle">这是道听徒说迁移到微信小程序的可部署原生工程。桌面端 Tauri 能力已拆为小程序页面、云函数和云存储语义。</view>
   </view>
-  <view class="section">
-    <view class="title">部署方式</view>
+
+  <view class="about-card">
+    <view class="about-title">部署方式</view>
     <view class="muted">用微信开发者工具打开 miniprogram/wechat，填写真实 appid，开通云开发环境后上传 ../cloudfunctions 下的云函数。</view>
   </view>
-  <view class="section">
-    <view class="title">二期范围</view>
+
+  <view class="about-card">
+    <view class="about-title">二期范围</view>
     <view class="muted">视频生成、长任务轮询、MP4 播放和复杂导出会在二期补齐。</view>
   </view>
 </view>
