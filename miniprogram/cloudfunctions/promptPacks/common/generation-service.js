@@ -21,14 +21,32 @@ function validateGenerationInput(input) {
   if (input.height < minDimension || input.height > 4096) throw new Error(`高度必须在 ${minDimension} 到 4096 之间`)
   if (input.mode === 'img2img' && !input.referenceImage) throw new Error('图生图需要先上传参考图')
   if (input.mode === 'img2video' && !input.referenceImage) throw new Error('图生视频需要先上传参考图')
+  if (typeof input.batchSize === 'number' && !Number.isInteger(input.batchSize)) throw new Error('batchSize 必须是整数')
 }
+
+const MAX_BATCH_SIZE = 10
 
 async function testProfile(profile) {
   if (!profile.endpoint?.trim()) return { ok: false, message: '请填写 API 地址' }
   if (profile.keyMode === 'user' && !profile.apiKey?.trim()) return { ok: false, message: '请填写 API Key' }
-  return {
-    ok: true,
-    message: `${profile.name} 已通过配置校验，默认协议 ${profile.apiProtocol || 'openai-images'}，路径 ${profile.apiPath || protocolDefaults[profile.apiProtocol || 'openai-images']}`,
+  try {
+    const endpoint = normalizeEndpoint(profile.endpoint, profile.apiPath || protocolDefaults[profile.apiProtocol || 'openai-images'])
+    const testBody = JSON.stringify({ model: profile.model || 'agnes-image-2.1-flash', prompt: 'test', size: '64x64', n: 1 })
+    const response = await requestBuffer(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${profile.apiKey || ''}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(testBody),
+      },
+      timeout: 10000,
+    }, testBody)
+    if (response.statusCode >= 200 && response.statusCode < 500) {
+      return { ok: true, message: `${profile.name} 连接成功 (HTTP ${response.statusCode})` }
+    }
+    return { ok: false, message: `连接失败：HTTP ${response.statusCode}` }
+  } catch (error) {
+    return { ok: false, message: `连接失败：${error instanceof Error ? error.message : '网络错误'}` }
   }
 }
 
@@ -38,13 +56,17 @@ function previewDataUrl(input, index) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }
 
-async function uploadPreviewIfPossible(taskId, assetId, dataUrl) {
+async function uploadPreviewIfPossible(taskId, assetId, dataUrl, assetKind = 'image') {
   const wxServer = getWxServer()
   if (!wxServer || !wxServer.uploadFile) return { cloudFileId: '', remoteUrl: '', dataUrl }
   const base64 = decodeURIComponent(dataUrl.split(',')[1] || '')
   const buffer = Buffer.from(base64)
-  const result = await wxServer.uploadFile({ cloudPath: `assets/${taskId}/${assetId}.svg`, fileContent: buffer })
+  const result = await wxServer.uploadFile({ cloudPath: `assets/${assetFolder(assetKind)}/${taskId}/${assetId}.svg`, fileContent: buffer })
   return { cloudFileId: result.fileID, remoteUrl: '', dataUrl: '' }
+}
+
+function assetFolder(assetKind) {
+  return assetKind === 'video' ? 'videos' : 'images'
 }
 
 function normalizeEndpoint(endpoint, apiPath) {
@@ -74,9 +96,23 @@ function extensionFromUrl(url) {
   return imageMimeByExtension[ext] ? ext : 'png'
 }
 
+const PRIVATE_IP_RE = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|0\.|169\.254\.|::1|fc|fd|fe80)/
+
+function isPrivateHost(hostname) {
+  return PRIVATE_IP_RE.test(hostname) || hostname === 'localhost' || hostname.endsWith('.local')
+}
+
 function requestBuffer(url, options = {}, body = null) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      reject(new Error('仅支持 HTTP/HTTPS 协议'))
+      return
+    }
+    if (isPrivateHost(parsed.hostname)) {
+      reject(new Error('不允许访问内部网络地址'))
+      return
+    }
     const transport = parsed.protocol === 'http:' ? http : https
     const req = transport.request(parsed, options, (res) => {
       const chunks = []
@@ -142,13 +178,13 @@ async function callOpenAIImage(input, model, index) {
   return readAgnesImage(payload)
 }
 
-async function uploadImageIfPossible(taskId, assetId, image) {
+async function uploadImageIfPossible(taskId, assetId, image, assetKind = 'image') {
   const ext = extensionFromMime(image.mime)
   const wxServer = getWxServer()
   if (!wxServer || !wxServer.uploadFile) {
     return { cloudFileId: '', remoteUrl: image.remoteUrl || '', dataUrl: `data:${image.mime};base64,${image.buffer.toString('base64')}`, format: ext }
   }
-  const result = await wxServer.uploadFile({ cloudPath: `assets/${taskId}/${assetId}.${ext}`, fileContent: image.buffer })
+  const result = await wxServer.uploadFile({ cloudPath: `assets/${assetFolder(assetKind)}/${taskId}/${assetId}.${ext}`, fileContent: image.buffer })
   return { cloudFileId: result.fileID, remoteUrl: image.remoteUrl || '', dataUrl: '', format: ext }
 }
 
@@ -163,8 +199,8 @@ async function createGenerationTask(input, model, openid) {
     const assetId = `asset-${randomUUID()}`
     const shouldCallImageApi = ['agnes-image', 'openai-images'].includes(model.apiProtocol)
     const stored = shouldCallImageApi
-      ? await uploadImageIfPossible(taskId, assetId, await callOpenAIImage(input, model, index))
-      : await uploadPreviewIfPossible(taskId, assetId, previewDataUrl(input, index))
+      ? await uploadImageIfPossible(taskId, assetId, await callOpenAIImage(input, model, index), assetKind)
+      : await uploadPreviewIfPossible(taskId, assetId, previewDataUrl(input, index), assetKind)
     assets.push({
       id: assetId,
       taskId,
@@ -192,4 +228,4 @@ async function createGenerationTask(input, model, openid) {
   }
 }
 
-module.exports = { validateGenerationInput, testProfile, createGenerationTask }
+module.exports = { validateGenerationInput, testProfile, createGenerationTask, MAX_BATCH_SIZE }

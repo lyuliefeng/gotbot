@@ -6,6 +6,7 @@
   "scripts": {
     "verify:wechat": "node wechat/scripts/verify-wechat-project.cjs",
     "smoke:cloud": "node wechat/scripts/smoke-cloudfunctions.cjs",
+    "smoke:asset-paths": "node wechat/scripts/smoke-asset-paths.cjs",
     "dev:h5": "vite --config vite.config.ts",
     "build:h5": "vue-tsc --noEmit && vite build --config vite.config.ts",
     "typecheck": "vue-tsc --noEmit",
