@@ -27,7 +27,7 @@ const prompts = [
 ]
 
 const defaultModels = [
-  { id: 'platform-agnes-image', name: '平台 Agnes Image', provider: 'openai-compatible', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/images/generations', apiProtocol: 'openai-images', model: 'agnes-image-2.1-flash', kind: 'image', keyMode: 'platform', isPrimary: true, status: 'untested' },
+  { id: 'platform-agnes-image', name: '默认 Agnes 图片模型', provider: 'openai-compatible', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/images/generations', apiProtocol: 'openai-images', model: 'agnes-image-2.1-flash', kind: 'image', keyMode: 'platform', isPrimary: true, status: 'untested' },
 ]
 
 module.exports = { modeLabels, tools, prompts, defaultModels }

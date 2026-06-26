@@ -2,7 +2,14 @@
   <view class="settings-hero">
     <view class="eyebrow">Model Hub</view>
     <view class="title">模型配置</view>
-    <view class="subtitle">配置图片或视频通道。创作工作台会按通道自动匹配模型。</view>
+    <view class="subtitle">默认使用平台 Agnes 主模型，也可以添加自己的图片或视频模型。</view>
+    <view class="platform-strip">
+      <view>
+        <view class="platform-label">默认主模型</view>
+        <view class="platform-value">Agnes Image · agnes-image-2.1-flash</view>
+      </view>
+      <view class="platform-badge">Key 已隐藏</view>
+    </view>
   </view>
 
   <view class="section config-section">
@@ -37,12 +44,13 @@
     <view class="field">
       <view class="label">接口地址</view>
       <input class="input" value="{{draft.endpoint}}" data-field="endpoint" bindinput="onInput" placeholder="https://api.example.com" />
-      <view class="hint">示例：https://apihub.agnes-ai.com。接口路径已固定，不需要填写 API Path。</view>
+      <view class="hint">默认主模型 API：https://apihub.agnes-ai.com。协议固定为 OpenAI v1 图片接口，暂不需要选择 API Path。</view>
     </view>
 
     <view wx:if="{{showUserKeyFields}}" class="field">
       <view class="label">API Key</view>
       <input class="input" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="sk-..." />
+      <view class="hint">只在使用“我的 Key”时填写；平台默认 Key 只保存在云函数环境变量中。</view>
     </view>
 
     <view class="field">

@@ -4,7 +4,7 @@ const { loadState, saveState } = require('../../utils/state')
 const apiProtocol = 'openai-images'
 const apiPath = 'v1/images/generations'
 const nameOptions = [
-  { label: 'Agnes 图片', value: 'Agnes 图片模型', endpoint: 'https://apihub.agnes-ai.com', model: 'agnes-image-2.1-flash', kind: 'image' },
+  { label: '默认 Agnes', value: '默认 Agnes 图片模型', endpoint: 'https://apihub.agnes-ai.com', model: 'agnes-image-2.1-flash', kind: 'image', keyMode: 'platform' },
   { label: '兼容接口', value: 'OpenAI 兼容模型', endpoint: '', model: '', kind: 'image' },
   { label: '自定义', value: '', kind: 'image' },
 ]
@@ -20,7 +20,7 @@ const keyModeOptions = [
 function emptyDraft() {
   return {
     id: '',
-    name: 'Agnes 图片模型',
+    name: '默认 Agnes 图片模型',
     provider: 'openai-compatible',
     endpoint: 'https://apihub.agnes-ai.com',
     apiPath,
@@ -36,11 +36,12 @@ function emptyDraft() {
 
 function decorateModel(model) {
   const kindLabel = model.kind === 'video' ? '视频' : '图片'
+  const isPlatform = model.keyMode === 'platform'
   return {
     ...model,
     kindLabel,
-    keyModeLabel: model.keyMode === 'platform' ? '平台 Key' : '用户 Key',
-    summary: `${kindLabel}通道 · ${model.keyMode === 'platform' ? '平台统一 Key' : '我的 Key'} · ${model.model || '未选择模型'}`,
+    keyModeLabel: isPlatform ? '平台 Key 已隐藏' : '用户 Key',
+    summary: `${kindLabel}通道 · ${isPlatform ? '平台 Key 已隐藏' : '我的 Key'} · ${model.model || '未选择模型'}`,
   }
 }
 
@@ -87,6 +88,7 @@ Page({
     currentKeyModeLabel: keyModeOptions[0].label,
     currentModelLabel: '选择模型：请选择',
     currentModelText: 'agnes-image-2.1-flash',
+    platformStatusText: '默认主模型 API：https://apihub.agnes-ai.com',
     nameIndex: 0,
     kindIndex: 0,
     keyModeIndex: 0,
@@ -137,9 +139,14 @@ Page({
       next['draft.endpoint'] = preset.endpoint
       next['draft.model'] = preset.model
       next['draft.kind'] = preset.kind || 'image'
+      next['draft.keyMode'] = preset.keyMode || 'platform'
       next.kindIndex = Math.max(0, kindOptions.findIndex((item) => item.value === (preset.kind || 'image')))
       next.currentKindLabel = currentKindOption(preset.kind).label
       next.kindHint = currentKindOption(preset.kind).hint
+      next.keyModeIndex = Math.max(0, keyModeOptions.findIndex((item) => item.value === (preset.keyMode || 'platform')))
+      next.currentKeyModeLabel = currentKeyModeOption(preset.keyMode || 'platform').label
+      next.showUserKeyFields = (preset.keyMode || 'platform') === 'user'
+      next.keyModeHint = currentKeyModeOption(preset.keyMode || 'platform').hint
       next.modelOptions = []
       next.modelIndex = -1
       next.showManualModelInput = false
@@ -333,7 +340,11 @@ Page({
 
   async testModel() {
     try {
-      const result = await callFunction('modelProfiles', { action: 'test', profile: { ...this.data.draft, apiProtocol, apiPath, endpoint: normalizeEndpoint(this.data.draft.endpoint) } })
+      const draft = this.data.draft
+      const profileId = draft.id
+      const result = profileId
+        ? await callFunction('modelProfiles', { action: 'test', profileId })
+        : await callFunction('modelProfiles', { action: 'test', profile: { ...draft, apiProtocol, apiPath, endpoint: normalizeEndpoint(draft.endpoint) } })
       this.setData({ notice: result.message, error: '' })
     } catch (error) {
       this.setData({ error: error.message || '检测失败' })
@@ -345,6 +356,8 @@ Page({
     await callFunction('modelProfiles', { action: 'delete', id }).catch(() => true)
     const state = loadState()
     state.models = (state.models || []).filter((model) => model.id !== id)
+    if (state.defaultModelId === id) state.defaultModelId = (state.models.find((m) => (m.kind || 'image') !== 'video') || {}).id || ''
+    if (state.defaultVideoModelId === id) state.defaultVideoModelId = (state.models.find((m) => m.kind === 'video') || {}).id || ''
     saveState(state)
     this.setData({ models: state.models.map(decorateModel) })
   },

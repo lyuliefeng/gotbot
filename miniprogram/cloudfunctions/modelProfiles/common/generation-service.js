@@ -30,18 +30,17 @@ async function testProfile(profile) {
   if (!profile.endpoint?.trim()) return { ok: false, message: '请填写 API 地址' }
   if (profile.keyMode === 'user' && !profile.apiKey?.trim()) return { ok: false, message: '请填写 API Key' }
   try {
-    const endpoint = normalizeEndpoint(profile.endpoint, profile.apiPath || protocolDefaults[profile.apiProtocol || 'openai-images'])
-    const testBody = JSON.stringify({ model: profile.model || 'agnes-image-2.1-flash', prompt: 'test', size: '64x64', n: 1 })
+    const base = String(profile.endpoint || '').replace(/\/+$/, '')
+    const endpoint = /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`
     const response = await requestBuffer(endpoint, {
-      method: 'POST',
+      method: 'GET',
       headers: {
         Authorization: `Bearer ${profile.apiKey || ''}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(testBody),
+        Accept: 'application/json',
       },
       timeout: 10000,
-    }, testBody)
-    if (response.statusCode >= 200 && response.statusCode < 500) {
+    })
+    if (response.statusCode >= 200 && response.statusCode < 300) {
       return { ok: true, message: `${profile.name} 连接成功 (HTTP ${response.statusCode})` }
     }
     return { ok: false, message: `连接失败：HTTP ${response.statusCode}` }
@@ -124,6 +123,7 @@ function requestBuffer(url, options = {}, body = null) {
       }))
     })
     req.on('error', reject)
+    if (options.timeout) req.setTimeout(options.timeout, () => req.destroy(new Error('请求超时')))
     if (body) req.write(body)
     req.end()
   })

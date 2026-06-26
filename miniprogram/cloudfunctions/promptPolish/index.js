@@ -1,4 +1,5 @@
 const https = require('node:https')
+const { pickPlatformTextKey } = require('./common/platform-keys')
 const { fail, ok } = require('./common/types')
 
 const endpoint = 'https://apihub.agnes-ai.com/v1/chat/completions'
@@ -37,6 +38,8 @@ function requestJson(url, payload, apiKey) {
 
 function buildMessages({ type, text, toolTitle }) {
   const isNegative = type === 'negative'
+  const safeText = String(text || '').slice(0, 5000)
+  const safeTitle = String(toolTitle || 'AI 创作').slice(0, 200)
   return [
     {
       role: 'system',
@@ -47,8 +50,8 @@ function buildMessages({ type, text, toolTitle }) {
     {
       role: 'user',
       content: isNegative
-        ? `创作类型：${toolTitle || 'AI 创作'}\n请把以下反向提示词润色得更完整，覆盖低质量、变形、画面错误、主体异常等问题：\n${text || '低清晰度、模糊、变形、文字水印'}`
-        : `创作类型：${toolTitle || 'AI 创作'}\n请把以下提示词润色成适合图像或视频生成的高质量提示词，保留原意，补充主体、场景、光线、构图、质感和镜头语言：\n${text || '主体明确，画面完整，适合商业创作'}`,
+        ? `创作类型：${safeTitle}\n请把以下反向提示词润色得更完整，覆盖低质量、变形、画面错误、主体异常等问题：\n${safeText || '低清晰度、模糊、变形、文字水印'}`
+        : `创作类型：${safeTitle}\n请把以下提示词润色成适合图像或视频生成的高质量提示词，保留原意，补充主体、场景、光线、构图、质感和镜头语言：\n${safeText || '主体明确，画面完整，适合商业创作'}`,
     },
   ]
 }
@@ -60,8 +63,8 @@ function extractText(result) {
 exports.main = async function main(event = {}) {
   try {
     if (event.action !== 'polish') return fail('unsupported action')
-    const apiKey = process.env.PLATFORM_TEXT_API_KEY || process.env.PLATFORM_IMAGE_API_KEY || ''
-    if (!apiKey) return fail('缺少 Agnes API Key，请先配置云函数环境变量 PLATFORM_TEXT_API_KEY')
+    const apiKey = pickPlatformTextKey()
+    if (!apiKey) return fail('缺少 Agnes API Key，请先配置云函数环境变量 PLATFORM_TEXT_API_KEYS')
     const result = await requestJson(endpoint, {
       model,
       messages: buildMessages(event),

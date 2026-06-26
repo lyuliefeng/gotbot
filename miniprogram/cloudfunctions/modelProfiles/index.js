@@ -1,16 +1,99 @@
+const http = require('node:http')
+const https = require('node:https')
+const { randomUUID } = require('node:crypto')
 const { decryptText, encryptText } = require('./common/crypto')
 const { list, remove, upsert } = require('./common/db')
 const { testProfile } = require('./common/generation-service')
+const { pickPlatformImageKey } = require('./common/platform-keys')
 const { fail, ok } = require('./common/types')
+
+function resolveOpenid(context, event) {
+  const openid = context.OPENID
+  if (!openid) throw new Error('认证失败：无法获取用户身份')
+  return openid
+}
 
 function sanitizeProfile(profile) {
   const { encryptedApiKey, apiKey, ...rest } = profile
   return { ...rest, apiKey: '' }
 }
 
+const PROFILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
+
+const PROFILE_WHITELIST = [
+  'name', 'endpoint', 'apiPath', 'apiProtocol', 'model', 'kind', 'keyMode', 'comment',
+]
+
+function whitelistProfile(profile) {
+  const out = {}
+  for (const key of PROFILE_WHITELIST) {
+    if (profile[key] !== undefined) out[key] = profile[key]
+  }
+  return out
+}
+
+function normalizeEndpoint(endpoint) {
+  return String(endpoint || '').replace(/\/+$/, '')
+}
+
+function modelsUrl(endpoint) {
+  const base = normalizeEndpoint(endpoint)
+  return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`
+}
+
+function requestJson(url, apiKey) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      reject(new Error('仅支持 HTTP/HTTPS 协议'))
+      return
+    }
+    const transport = parsed.protocol === 'http:' ? http : https
+    const req = transport.request(parsed, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      timeout: 12000,
+    }, (res) => {
+      const chunks = []
+      res.on('data', (chunk) => chunks.push(chunk))
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        let data = {}
+        try { data = text ? JSON.parse(text) : {} } catch (error) { data = { raw: text } }
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(data.error?.message || data.message || `模型拉取失败：${res.statusCode}`))
+          return
+        }
+        resolve(data)
+      })
+    })
+    req.on('error', reject)
+    req.setTimeout(12000, () => req.destroy(new Error('模型拉取请求超时')))
+    req.end()
+  })
+}
+
+function hydrate(profile) {
+  return {
+    ...profile,
+    apiKey: profile.keyMode === 'user' ? decryptText(profile.encryptedApiKey || '') || profile.apiKey || '' : pickPlatformImageKey(),
+  }
+}
+
 exports.main = async function main(event = {}, context = {}) {
   try {
-    const openid = context.OPENID || event.openid || 'mock-openid'
+    if (event.action === 'discover') {
+      const profile = hydrate({ ...whitelistProfile(event.profile || {}), apiKey: event.profile?.apiKey || '' })
+      if (!profile.endpoint?.trim()) throw new Error('请填写 API 地址')
+      if (!profile.apiKey?.trim()) throw new Error(profile.keyMode === 'user' ? '请填写 API Key' : '平台 API Key 未配置')
+      return ok(await requestJson(modelsUrl(profile.endpoint), profile.apiKey))
+    }
+
+    if (event.action === 'test' && event.profile && !event.profileId && !event.profile.id) {
+      return ok(await testProfile(hydrate({ ...whitelistProfile(event.profile), apiKey: event.profile.apiKey || '' })))
+    }
+
+    const openid = resolveOpenid(context, event)
     if (event.action === 'list') {
       const profiles = await list('modelProfiles', (item) => item.openid === openid)
       return ok(profiles.map(sanitizeProfile))
@@ -18,9 +101,10 @@ exports.main = async function main(event = {}, context = {}) {
 
     if (event.action === 'save') {
       const profile = event.profile || {}
-      const id = profile.id || `model-${Date.now()}`
+      const id = profile.id && PROFILE_ID_RE.test(profile.id) ? profile.id : `model-${randomUUID()}`
+      const sanitized = whitelistProfile(profile)
       const saved = await upsert('modelProfiles', (item) => item.id === id && item.openid === openid, {
-        ...profile,
+        ...sanitized,
         id,
         openid,
         encryptedApiKey: profile.keyMode === 'user' ? encryptText(profile.apiKey || '') : '',
@@ -31,19 +115,22 @@ exports.main = async function main(event = {}, context = {}) {
     }
 
     if (event.action === 'delete') {
-      return ok(await remove('modelProfiles', (item) => item.id === event.id && item.openid === openid))
+      if (!event.id) throw new Error('缺少模型 ID')
+      const removed = await remove('modelProfiles', (item) => item.id === event.id && item.openid === openid)
+      if (!removed) throw new Error('模型不存在或无权删除')
+      return ok(true)
     }
 
     if (event.action === 'test') {
-      const profile = event.profile || {}
-      const hydrated = {
-        ...profile,
-        apiKey: profile.keyMode === 'user' ? profile.apiKey || decryptText(profile.encryptedApiKey || '') : process.env.PLATFORM_IMAGE_API_KEY || '',
-      }
-      return ok(await testProfile(hydrated))
+      const profileId = event.profileId || event.profile?.id
+      if (!profileId) throw new Error('缺少模型 ID')
+      const profiles = await list('modelProfiles', (item) => item.id === profileId && item.openid === openid)
+      const stored = profiles[0]
+      if (!stored) throw new Error('模型不存在，请先保存')
+      return ok(await testProfile(hydrate(stored)))
     }
 
-    return fail('unsupported action')
+    throw new Error('不支持的操作')
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'modelProfiles failed')
   }

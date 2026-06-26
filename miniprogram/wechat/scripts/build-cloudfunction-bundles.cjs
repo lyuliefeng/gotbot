@@ -10,6 +10,7 @@ const modules = [
   'common/crypto.js',
   'common/db.js',
   'common/generation-service.js',
+  'common/platform-keys.js',
   'common/types.js',
 ]
 

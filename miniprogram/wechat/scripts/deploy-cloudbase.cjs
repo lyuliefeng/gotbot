@@ -5,8 +5,10 @@ const { spawnSync } = require('node:child_process')
 const outputRoot = path.join('/tmp', 'gotbot-cloudfunctions-bundled')
 const deployRoot = path.join('/tmp', 'gotbot-cloudbase-deploy')
 const envId = process.env.CLOUDBASE_ENV_ID || 'cloud1-d5g01k4t5decfcc5c'
-const platformKey = process.env.PLATFORM_IMAGE_API_KEY || ''
-const platformTextKey = process.env.PLATFORM_TEXT_API_KEY || platformKey
+const platformImageKeys = process.env.PLATFORM_IMAGE_API_KEYS || process.env.PLATFORM_IMAGE_API_KEY || ''
+const platformKey = platformImageKeys.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean)[0] || ''
+const platformTextKeys = process.env.PLATFORM_TEXT_API_KEYS || process.env.PLATFORM_TEXT_API_KEY || platformImageKeys
+const platformTextKey = platformTextKeys.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean)[0] || platformKey
 const secret = process.env.GOTBOT_MINIPROGRAM_SECRET || ''
 
 if (!platformKey) {
@@ -48,7 +50,9 @@ fs.writeFileSync(path.join(deployRoot, 'cloudbaserc.json'), JSON.stringify({
     handler: 'index.main',
     timeout: item.timeout,
     envVariables: {
+      PLATFORM_IMAGE_API_KEYS: platformImageKeys,
       PLATFORM_IMAGE_API_KEY: platformKey,
+      PLATFORM_TEXT_API_KEYS: platformTextKeys,
       PLATFORM_TEXT_API_KEY: platformTextKey,
       GOTBOT_MINIPROGRAM_SECRET: secret,
     },
