@@ -4,49 +4,43 @@ const { loadState, saveState } = require('../../utils/state')
 const apiProtocol = 'openai-images'
 const apiPath = 'v1/images/generations'
 const nameOptions = [
-  { label: '默认 Agnes', value: '默认 Agnes 图片模型', endpoint: 'https://apihub.agnes-ai.com', model: 'agnes-image-2.1-flash', kind: 'image', keyMode: 'platform' },
-  { label: '兼容接口', value: 'OpenAI 兼容模型', endpoint: '', model: '', kind: 'image' },
+  { label: 'OpenAI 兼容', value: 'OpenAI 兼容模型', endpoint: '', model: '', kind: 'image' },
+  { label: '视频接口', value: '第三方视频模型', endpoint: '', model: '', kind: 'video' },
   { label: '自定义', value: '', kind: 'image' },
 ]
 const kindOptions = [
   { label: '图片模型', value: 'image', hint: '文生图、图生图、封面、ICON、3D 图和 GIF 会自动使用这个通道。' },
   { label: '视频模型', value: 'video', hint: '视频创作会自动只显示这个通道的模型。' },
 ]
-const keyModeOptions = [
-  { label: '平台统一 Key', value: 'platform', hint: '使用云函数里配置好的平台 Key，小程序里不用填写密钥。' },
-  { label: '我的 Key', value: 'user', hint: '使用你自己的 API Key，保存时由云函数加密存储。' },
-]
-
 function emptyDraft() {
   return {
     id: '',
-    name: '默认 Agnes 图片模型',
+    name: 'OpenAI 兼容模型',
     provider: 'openai-compatible',
-    endpoint: 'https://apihub.agnes-ai.com',
+    endpoint: '',
     apiPath,
     apiProtocol,
     apiKey: '',
-    model: 'agnes-image-2.1-flash',
+    model: '',
     kind: 'image',
-    keyMode: 'platform',
+    keyMode: 'user',
     isPrimary: false,
     status: 'untested',
   }
 }
 
+function isThirdPartyModel(model) {
+  return (model.keyMode || 'platform') === 'user'
+}
+
 function decorateModel(model) {
   const kindLabel = model.kind === 'video' ? '视频' : '图片'
-  const isPlatform = model.keyMode === 'platform'
   return {
     ...model,
     kindLabel,
-    keyModeLabel: isPlatform ? '平台 Key 已隐藏' : '用户 Key',
-    summary: `${kindLabel}通道 · ${isPlatform ? '平台 Key 已隐藏' : '我的 Key'} · ${model.model || '未选择模型'}`,
+    keyModeLabel: '第三方 Key',
+    summary: `${kindLabel}通道 · 第三方接口 · ${model.model || '未选择模型'}`,
   }
-}
-
-function currentKeyModeOption(keyMode) {
-  return keyModeOptions.find((item) => item.value === keyMode) || keyModeOptions[0]
 }
 
 function currentKindOption(kind) {
@@ -81,38 +75,36 @@ Page({
     draft: emptyDraft(),
     nameOptions: nameOptions.map((item) => item.label),
     kindLabels: kindOptions.map((item) => item.label),
-    keyModeLabels: keyModeOptions.map((item) => item.label),
     modelOptions: [],
     currentNameLabel: nameOptions[0].label,
     currentKindLabel: kindOptions[0].label,
-    currentKeyModeLabel: keyModeOptions[0].label,
     currentModelLabel: '选择模型：请选择',
-    currentModelText: 'agnes-image-2.1-flash',
-    platformStatusText: '默认主模型 API：https://apihub.agnes-ai.com',
+    currentModelText: '先拉取或手动填写模型 ID',
     nameIndex: 0,
     kindIndex: 0,
-    keyModeIndex: 0,
     showCustomName: false,
-    showUserKeyFields: false,
     kindHint: kindOptions[0].hint,
-    keyModeHint: keyModeOptions[0].hint,
     modelIndex: -1,
     isFetchingModels: false,
-    showManualModelInput: false,
+    showManualModelInput: true,
     notice: '',
     error: '',
   },
 
   onShow() {
     const state = loadState()
-    this.setData({ models: (state.models || []).map(decorateModel) })
+    this.setData({ models: (state.models || []).filter(isThirdPartyModel).map(decorateModel) })
     callFunction('modelProfiles', { action: 'list' }).then((models) => {
       if (models && models.length) {
         const next = loadState()
-        next.models = models
-        next.defaultModelId = models.find((model) => model.isPrimary)?.id || models[0].id
+        const platformModels = (next.models || []).filter((model) => !isThirdPartyModel(model))
+        next.models = platformModels.concat(models)
+        const primaryImage = models.find((model) => model.isPrimary && (model.kind || 'image') !== 'video')
+        const primaryVideo = models.find((model) => model.isPrimary && model.kind === 'video')
+        if (primaryImage) next.defaultModelId = primaryImage.id
+        if (primaryVideo) next.defaultVideoModelId = primaryVideo.id
         saveState(next)
-        this.setData({ models: models.map(decorateModel) })
+        this.setData({ models: models.filter(isThirdPartyModel).map(decorateModel) })
       }
     }).catch(() => undefined)
   },
@@ -139,21 +131,18 @@ Page({
       next['draft.endpoint'] = preset.endpoint
       next['draft.model'] = preset.model
       next['draft.kind'] = preset.kind || 'image'
-      next['draft.keyMode'] = preset.keyMode || 'platform'
+      next['draft.keyMode'] = 'user'
       next.kindIndex = Math.max(0, kindOptions.findIndex((item) => item.value === (preset.kind || 'image')))
       next.currentKindLabel = currentKindOption(preset.kind).label
       next.kindHint = currentKindOption(preset.kind).hint
-      next.keyModeIndex = Math.max(0, keyModeOptions.findIndex((item) => item.value === (preset.keyMode || 'platform')))
-      next.currentKeyModeLabel = currentKeyModeOption(preset.keyMode || 'platform').label
-      next.showUserKeyFields = (preset.keyMode || 'platform') === 'user'
-      next.keyModeHint = currentKeyModeOption(preset.keyMode || 'platform').hint
       next.modelOptions = []
       next.modelIndex = -1
-      next.showManualModelInput = false
+      next.showManualModelInput = true
       next.currentModelText = preset.model || '先拉取或手动填写模型 ID'
     } else {
       next['draft.name'] = ''
       next['draft.kind'] = 'image'
+      next['draft.keyMode'] = 'user'
       next.kindIndex = 0
       next.currentKindLabel = kindOptions[0].label
       next.kindHint = kindOptions[0].hint
@@ -173,20 +162,6 @@ Page({
       currentKindLabel: option.label,
       'draft.kind': option.value,
       kindHint: option.hint,
-      notice: '',
-      error: '',
-    })
-  },
-
-  onKeyModeChange(event) {
-    const index = Number(event.detail.value)
-    const option = keyModeOptions[index]
-    this.setData({
-      keyModeIndex: index,
-      currentKeyModeLabel: option.label,
-      'draft.keyMode': option.value,
-      showUserKeyFields: option.value === 'user',
-      keyModeHint: option.hint,
       notice: '',
       error: '',
     })
@@ -214,7 +189,7 @@ Page({
   fetchModels() {
     const draft = this.data.draft
     if (!draft.endpoint?.trim()) {
-      this.setData({ error: '请先填写 Base URL' })
+      this.setData({ error: '请先填写第三方接口地址' })
       return
     }
     this.setData({ isFetchingModels: true, notice: '', error: '' })
@@ -234,10 +209,6 @@ Page({
         })
       })
       .catch((cloudError) => {
-        if (draft.keyMode === 'platform') {
-          this.setData({ isFetchingModels: false, error: cloudError.message || '平台 Key 模型拉取需要先更新云函数' })
-          return
-        }
         this.fetchModelsFromClient(draft)
       })
   },
@@ -279,19 +250,14 @@ Page({
   edit(event) {
     const model = this.data.models.find((item) => item.id === event.currentTarget.dataset.id)
     if (!model) return
-    const keyMode = model.keyMode || 'platform'
     this.setData({
-      draft: { ...emptyDraft(), ...model, apiProtocol, apiPath, endpoint: normalizeEndpoint(model.endpoint), apiKey: '' },
+      draft: { ...emptyDraft(), ...model, apiProtocol, apiPath, endpoint: normalizeEndpoint(model.endpoint), apiKey: '', keyMode: 'user' },
       nameIndex: 2,
       currentNameLabel: nameOptions[2].label,
       showCustomName: true,
       kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === (model.kind || 'image'))),
       currentKindLabel: currentKindOption(model.kind).label,
       kindHint: currentKindOption(model.kind).hint,
-      keyModeIndex: Math.max(0, keyModeOptions.findIndex((item) => item.value === keyMode)),
-      currentKeyModeLabel: currentKeyModeOption(keyMode).label,
-      showUserKeyFields: keyMode === 'user',
-      keyModeHint: currentKeyModeOption(keyMode).hint,
       modelOptions: [],
       modelIndex: -1,
       currentModelLabel: '选择模型：请选择',
@@ -302,7 +268,7 @@ Page({
 
   async save() {
     try {
-      const saved = await callFunction('modelProfiles', { action: 'save', profile: { ...this.data.draft, apiProtocol, apiPath, endpoint: normalizeEndpoint(this.data.draft.endpoint) } })
+      const saved = await callFunction('modelProfiles', { action: 'save', profile: { ...this.data.draft, keyMode: 'user', apiProtocol, apiPath, endpoint: normalizeEndpoint(this.data.draft.endpoint) } })
       const state = loadState()
       const models = state.models || []
       const index = models.findIndex((model) => model.id === saved.id)
@@ -313,7 +279,7 @@ Page({
       else state.defaultModelId = state.defaultModelId || saved.id
       saveState(state)
       this.setData({
-        models: models.map(decorateModel),
+        models: models.filter(isThirdPartyModel).map(decorateModel),
         draft: emptyDraft(),
         nameIndex: 0,
         currentNameLabel: nameOptions[0].label,
@@ -321,15 +287,11 @@ Page({
         currentKindLabel: kindOptions[0].label,
         kindHint: kindOptions[0].hint,
         showCustomName: false,
-        keyModeIndex: 0,
-        currentKeyModeLabel: keyModeOptions[0].label,
-        showUserKeyFields: false,
-        keyModeHint: keyModeOptions[0].hint,
         modelOptions: [],
         modelIndex: -1,
         currentModelLabel: '选择模型：请选择',
-        currentModelText: 'agnes-image-2.1-flash',
-        showManualModelInput: false,
+        currentModelText: '先拉取或手动填写模型 ID',
+        showManualModelInput: true,
         notice: '模型配置已保存',
         error: '',
       })
@@ -344,7 +306,7 @@ Page({
       const profileId = draft.id
       const result = profileId
         ? await callFunction('modelProfiles', { action: 'test', profileId })
-        : await callFunction('modelProfiles', { action: 'test', profile: { ...draft, apiProtocol, apiPath, endpoint: normalizeEndpoint(draft.endpoint) } })
+        : await callFunction('modelProfiles', { action: 'test', profile: { ...draft, keyMode: 'user', apiProtocol, apiPath, endpoint: normalizeEndpoint(draft.endpoint) } })
       this.setData({ notice: result.message, error: '' })
     } catch (error) {
       this.setData({ error: error.message || '检测失败' })
@@ -359,6 +321,6 @@ Page({
     if (state.defaultModelId === id) state.defaultModelId = (state.models.find((m) => (m.kind || 'image') !== 'video') || {}).id || ''
     if (state.defaultVideoModelId === id) state.defaultVideoModelId = (state.models.find((m) => m.kind === 'video') || {}).id || ''
     saveState(state)
-    this.setData({ models: state.models.map(decorateModel) })
+    this.setData({ models: state.models.filter(isThirdPartyModel).map(decorateModel) })
   },
 })
