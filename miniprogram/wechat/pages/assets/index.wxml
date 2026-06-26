@@ -9,8 +9,16 @@
     <view class="library-tabs">
       <button class="library-tab {{imageTabClass}}" data-library="image" bindtap="switchLibrary">{{imageCountText}}</button>
       <button class="library-tab {{videoTabClass}}" data-library="video" bindtap="switchLibrary">{{videoCountText}}</button>
+      <button class="library-tab {{favoriteTabClass}}" data-library="favorite" bindtap="switchLibrary">{{favoriteCountText}}</button>
     </view>
-    <button class="chip {{favoriteFilterClass}}" bindtap="toggleFilter">只看收藏</button>
+  </view>
+
+  <view class="library-summary">
+    <view>
+      <view class="summary-title">{{libraryTitle}}</view>
+      <view class="summary-text">{{librarySummary}}</view>
+    </view>
+    <button class="summary-action {{favoriteFilterClass}}" bindtap="toggleFilter">收藏</button>
   </view>
 
   <view wx:if="{{hasVisibleAssets}}" class="asset-grid">

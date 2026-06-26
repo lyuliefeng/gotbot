@@ -9,9 +9,13 @@ Page({
     visibleAssets: [],
     imageCountText: '图片 0',
     videoCountText: '视频 0',
+    favoriteCountText: '收藏 0',
+    libraryTitle: '图片仓库',
+    librarySummary: '共 0 个图片资产',
     activeLibrary: 'image',
     imageTabClass: 'active',
     videoTabClass: '',
+    favoriteTabClass: '',
     favoriteFilterClass: '',
     hasVisibleAssets: false,
     emptyText: '还没有图片资产，去创作页生成第一张图片。',
@@ -39,16 +43,25 @@ Page({
   },
 
   toggleFilter() {
-    const onlyFavorite = !this.data.onlyFavorite
-    this.setData({ onlyFavorite, favoriteFilterClass: onlyFavorite ? 'active' : '' }, () => this.applyTasks(this.data.tasks))
+    this.setData({
+      activeLibrary: 'favorite',
+      onlyFavorite: true,
+      imageTabClass: '',
+      videoTabClass: '',
+      favoriteTabClass: 'active',
+      favoriteFilterClass: 'active',
+    }, () => this.applyTasks(this.data.tasks))
   },
 
   switchLibrary(event) {
     const library = event.currentTarget.dataset.library || 'image'
     this.setData({
       activeLibrary: library,
+      onlyFavorite: library === 'favorite',
       imageTabClass: library === 'image' ? 'active' : '',
       videoTabClass: library === 'video' ? 'active' : '',
+      favoriteTabClass: library === 'favorite' ? 'active' : '',
+      favoriteFilterClass: library === 'favorite' ? 'active' : '',
     }, () => this.applyTasks(this.data.tasks))
   },
 
@@ -71,15 +84,28 @@ Page({
     const allAssets = normalized.reduce((items, task) => items.concat(task.assets || []), [])
     const imageAssets = allAssets.filter((asset) => asset.assetKind === 'image')
     const videoAssets = allAssets.filter((asset) => asset.assetKind === 'video')
-    const activeAssets = this.data.activeLibrary === 'video' ? videoAssets : imageAssets
-    const visibleAssets = this.data.onlyFavorite ? activeAssets.filter((asset) => asset.isFavorite) : activeAssets
+    const favoriteAssets = allAssets.filter((asset) => asset.isFavorite)
+    const activeAssets = this.data.activeLibrary === 'favorite'
+      ? favoriteAssets
+      : this.data.activeLibrary === 'video'
+        ? videoAssets
+        : imageAssets
+    const libraryTitle = this.data.activeLibrary === 'favorite' ? '收藏仓库' : this.data.activeLibrary === 'video' ? '视频仓库' : '图片仓库'
+    const librarySummary = this.data.activeLibrary === 'favorite'
+      ? `共 ${favoriteAssets.length} 个收藏资产`
+      : this.data.activeLibrary === 'video'
+        ? `共 ${videoAssets.length} 个视频资产`
+        : `共 ${imageAssets.length} 个图片资产`
     this.setData({
       tasks: normalized,
-      visibleAssets,
+      visibleAssets: activeAssets,
       imageCountText: `图片 ${imageAssets.length}`,
       videoCountText: `视频 ${videoAssets.length}`,
-      hasVisibleAssets: visibleAssets.length > 0,
-      emptyText: this.data.activeLibrary === 'video' ? '还没有视频资产，去创作页生成第一段视频。' : '还没有图片资产，去创作页生成第一张图片。',
+      favoriteCountText: `收藏 ${favoriteAssets.length}`,
+      libraryTitle,
+      librarySummary,
+      hasVisibleAssets: activeAssets.length > 0,
+      emptyText: this.data.activeLibrary === 'favorite' ? '还没有收藏资产，点亮喜欢的作品后会出现在这里。' : this.data.activeLibrary === 'video' ? '还没有视频资产，去创作页生成第一段视频。' : '还没有图片资产，去创作页生成第一张图片。',
     })
   },
 
