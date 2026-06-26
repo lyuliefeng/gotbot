@@ -119,7 +119,6 @@ async function callOpenAIImage(input, model, index) {
     prompt: input.negativePrompt ? `${input.prompt}\nNegative prompt: ${input.negativePrompt}` : input.prompt,
     size: `${input.width}x${input.height}`,
     n: 1,
-    seed: Number.isFinite(input.seed) ? input.seed + index : undefined,
   })
   const response = await requestBuffer(endpoint, {
     method: 'POST',
