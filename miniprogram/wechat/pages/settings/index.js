@@ -107,6 +107,20 @@ function applyModelDiscovery(models, kind) {
   }
 }
 
+function modelCounts(models) {
+  return models.reduce((counts, model) => {
+    const kind = model.kind || 'text'
+    counts[kind] = (counts[kind] || 0) + 1
+    return counts
+  }, { text: 0, image: 0, video: 0 })
+}
+
+function mergeModels(existing, incoming) {
+  const map = new Map((existing || []).map((model) => [model.id, model]))
+  for (const model of incoming || []) map.set(model.id, model)
+  return Array.from(map.values())
+}
+
 Page({
   data: {
     models: [],
@@ -241,17 +255,14 @@ Page({
       .then((result) => {
         const models = normalizeModels(result.availableModels || result.models || result)
         if (!models.length) throw new Error('没有拉取到可选模型')
-        const next = applyModelDiscovery(models, draft.kind || 'text')
-        this.setData({
-          ...next,
-          showManualModelInput: false,
-          isFetchingModels: false,
-          notice: `已扫描 ${models.length} 个模型，已优先选择${currentKindOption(next['draft.kind']).shortLabel}最低延迟模型`,
-          error: '',
-        })
+        return this.importDiscoveredModels(models, result.latencyMs)
       })
       .catch((cloudError) => {
-        this.fetchModelsFromClient(draft)
+        if (String(cloudError.message || '').includes('请填写 API Key') || String(cloudError.message || '').includes('模型拉取失败') || String(cloudError.message || '').includes('模型拉取请求超时')) {
+          this.fetchModelsFromClient(draft)
+          return
+        }
+        this.setData({ isFetchingModels: false, error: cloudError.message || '自动导入模型失败' })
       })
   },
 
@@ -274,16 +285,46 @@ Page({
           this.setData({ isFetchingModels: false, error: '没有拉取到可选模型' })
           return
         }
-        const next = applyModelDiscovery(models, draft.kind || 'text')
-        this.setData({
-          ...next,
-          showManualModelInput: false,
-          isFetchingModels: false,
-          notice: `已扫描 ${models.length} 个模型，已优先选择${currentKindOption(next['draft.kind']).shortLabel}最低延迟模型`,
-          error: '',
-        })
+        this.importDiscoveredModels(models, undefined).catch((error) => this.setData({ isFetchingModels: false, error: error.message || '导入模型失败' }))
       },
       fail: (error) => this.setData({ isFetchingModels: false, error: error.errMsg || '模型拉取失败' }),
+    })
+  },
+
+  async importDiscoveredModels(models, latencyMs) {
+    const draft = this.data.draft
+    const profiles = models.map((model) => ({
+      name: `${currentKindOption(model.kind).shortLabel} · ${model.name || model.id}`,
+      provider: 'openai-compatible',
+      endpoint: normalizeEndpoint(draft.endpoint),
+      apiPath,
+      apiProtocol,
+      apiKey: draft.apiKey,
+      model: model.id,
+      kind: model.kind || 'text',
+      keyMode: 'user',
+      latencyMs: typeof model.latencyMs === 'number' ? model.latencyMs : latencyMs,
+      status: 'untested',
+    }))
+    const saved = await callFunction('modelProfiles', { action: 'saveMany', profiles })
+    const state = loadState()
+    state.models = mergeModels(state.models || [], saved)
+    const textDefault = bestModelForKind(saved, 'text')
+    const imageDefault = bestModelForKind(saved, 'image')
+    const videoDefault = bestModelForKind(saved, 'video')
+    if (textDefault) state.defaultTextModelId = textDefault.id
+    if (imageDefault) state.defaultModelId = imageDefault.id
+    if (videoDefault) state.defaultVideoModelId = videoDefault.id
+    saveState(state)
+    const counts = modelCounts(saved)
+    const next = applyModelDiscovery(models, draft.kind || 'text')
+    this.setData({
+      ...next,
+      models: state.models.filter(isThirdPartyModel).map(decorateModel),
+      showManualModelInput: false,
+      isFetchingModels: false,
+      notice: `已自动导入 ${saved.length} 个模型：文字/多模态 ${counts.text}，生图 ${counts.image}，生视频 ${counts.video}`,
+      error: '',
     })
   },
 
@@ -356,7 +397,20 @@ Page({
 
   async remove(event) {
     const id = event.currentTarget.dataset.id
-    await callFunction('modelProfiles', { action: 'delete', id }).catch(() => true)
+    try {
+      const confirmed = await new Promise((resolve) => {
+        wx.showModal({
+          title: '确认删除',
+          content: '删除此模型配置后不可恢复，是否继续？',
+          success: (res) => resolve(res.confirm),
+        })
+      })
+      if (!confirmed) return
+      await callFunction('modelProfiles', { action: 'delete', id })
+    } catch (error) {
+      this.setData({ error: error.message || '删除失败' })
+      return
+    }
     const state = loadState()
     state.models = (state.models || []).filter((model) => model.id !== id)
     if (state.defaultTextModelId === id) state.defaultTextModelId = (state.models.find((m) => m.kind === 'text') || {}).id || ''

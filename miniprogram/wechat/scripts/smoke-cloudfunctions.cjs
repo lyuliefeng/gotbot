@@ -7,6 +7,8 @@ const { spawnSync } = require('node:child_process')
 const cloudRoot = path.resolve(__dirname, '../../cloudfunctions')
 const context = { OPENID: 'smoke-openid' }
 
+process.env.GOTBOT_MINIPROGRAM_SECRET = process.env.GOTBOT_MINIPROGRAM_SECRET || 'gotbot-smoke-secret'
+
 async function invoke(name, event) {
   const mod = require(path.join(cloudRoot, name, 'index.js'))
   assert.equal(typeof mod.main, 'function', `${name} must export main`)
@@ -45,6 +47,17 @@ async function main() {
 
   const models = await invoke('modelProfiles', { action: 'list' })
   assert.ok(models.some((model) => model.id === 'smoke-model'))
+
+  const importedModels = await invoke('modelProfiles', {
+    action: 'saveMany',
+    profiles: [
+      { name: 'Smoke Text Model', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/chat/completions', apiProtocol: 'multimodal-chat', model: 'agnes-2.0-flash', kind: 'text', keyMode: 'user', apiKey: 'smoke-user-key', latencyMs: 12 },
+      { name: 'Smoke Image Model', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/images/generations', apiProtocol: 'openai-images', model: 'agnes-image-2.1-flash', kind: 'image', keyMode: 'user', apiKey: 'smoke-user-key', latencyMs: 12 },
+      { name: 'Smoke Video Model', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/videos/generations', apiProtocol: 'openai-images', model: 'agnes-video-v2.0', kind: 'video', keyMode: 'user', apiKey: 'smoke-user-key', latencyMs: 12 },
+    ],
+  })
+  assert.deepEqual(importedModels.map((model) => model.kind).sort(), ['image', 'text', 'video'])
+  assert.ok(importedModels.every((model) => model.apiKey === ''), 'imported models must not expose API keys')
 
   const testResult = await invoke('modelProfiles', { action: 'test', profile: savedModel })
   assert.equal(typeof testResult.message, 'string')

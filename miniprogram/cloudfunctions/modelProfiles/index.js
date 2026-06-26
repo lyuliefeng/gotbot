@@ -1,6 +1,6 @@
 const http = require('node:http')
 const https = require('node:https')
-const { randomUUID } = require('node:crypto')
+const { createHash, randomUUID } = require('node:crypto')
 const { decryptText, encryptText } = require('./common/crypto')
 const { list, remove, upsert } = require('./common/db')
 const { testProfile } = require('./common/generation-service')
@@ -36,6 +36,12 @@ function normalizeEndpoint(endpoint) {
   return String(endpoint || '').replace(/\/+$/, '')
 }
 
+const PRIVATE_IP_RE = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|0\.|169\.254\.|::1|fc|fd|fe80)/
+
+function isPrivateHost(hostname) {
+  return PRIVATE_IP_RE.test(hostname) || hostname === 'localhost' || hostname.endsWith('.local')
+}
+
 function modelsUrl(endpoint) {
   const base = normalizeEndpoint(endpoint)
   return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`
@@ -64,6 +70,10 @@ function requestJson(url, apiKey) {
     const parsed = new URL(url)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       reject(new Error('仅支持 HTTP/HTTPS 协议'))
+      return
+    }
+    if (isPrivateHost(parsed.hostname)) {
+      reject(new Error('不允许访问内部网络地址'))
       return
     }
     const transport = parsed.protocol === 'http:' ? http : https
@@ -99,6 +109,14 @@ function hydrate(profile) {
   }
 }
 
+function stableProfileId(profile) {
+  const hash = createHash('sha1')
+    .update([normalizeEndpoint(profile.endpoint), profile.model || '', profile.kind || 'text'].join('|'))
+    .digest('hex')
+    .slice(0, 20)
+  return `model-${hash}`
+}
+
 exports.main = async function main(event = {}, context = {}) {
   try {
     if (event.action === 'discover') {
@@ -113,6 +131,7 @@ exports.main = async function main(event = {}, context = {}) {
     }
 
     const openid = resolveOpenid(context, event)
+
     if (event.action === 'list') {
       const profiles = await list('modelProfiles', (item) => item.openid === openid)
       return ok(profiles.map(sanitizeProfile))
@@ -131,6 +150,27 @@ exports.main = async function main(event = {}, context = {}) {
         updatedAt: new Date().toISOString(),
       })
       return ok(sanitizeProfile(saved))
+    }
+
+    if (event.action === 'saveMany') {
+      const profiles = Array.isArray(event.profiles) ? event.profiles : []
+      if (!profiles.length) throw new Error('没有可导入的模型')
+      const saved = []
+      for (const profile of profiles) {
+        const id = profile.id && PROFILE_ID_RE.test(profile.id) ? profile.id : stableProfileId(profile)
+        const sanitized = whitelistProfile(profile)
+        const item = await upsert('modelProfiles', (existing) => existing.id === id && existing.openid === openid, {
+          ...sanitized,
+          id,
+          openid,
+          keyMode: 'user',
+          encryptedApiKey: encryptText(profile.apiKey || ''),
+          apiKey: undefined,
+          updatedAt: new Date().toISOString(),
+        })
+        saved.push(sanitizeProfile(item))
+      }
+      return ok(saved)
     }
 
     if (event.action === 'delete') {
