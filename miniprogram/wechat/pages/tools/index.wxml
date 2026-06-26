@@ -2,17 +2,20 @@
   <view class="tools-hero">
     <view class="eyebrow">Toolbox</view>
     <view class="title">工具库</view>
-    <view class="subtitle">首版聚焦图像主链路，视频能力二期补齐。</view>
+    <view class="subtitle">这里预留给素材处理、格式转换、模型检测等辅助工具。</view>
   </view>
 
-  <view class="tool-list">
-    <view wx:for="{{tools}}" wx:key="id" class="tool-item">
-      <view class="tool-head">
-        <view class="tool-name">{{item.title}}</view>
-        <view class="tool-mode">{{item.modeLabel}}</view>
-      </view>
-      <view class="muted">{{item.desc}}</view>
-      <button class="button-soft" bindtap="goWorkspace">去创作</button>
-    </view>
+  <view class="empty-tool-panel">
+    <view class="empty-mark">待开放</view>
+    <view class="empty-title">工具位预留</view>
+    <view class="empty-text">生成图片和视频请先使用创作页。工具库后续只放辅助能力，避免和创作入口重复。</view>
+    <button class="button-primary" bindtap="goWorkspace">去创作</button>
+  </view>
+
+  <view class="placeholder-grid">
+    <view class="placeholder-item">去背景</view>
+    <view class="placeholder-item">图片压缩</view>
+    <view class="placeholder-item">格式转换</view>
+    <view class="placeholder-item">模型检测</view>
   </view>
 </view>
