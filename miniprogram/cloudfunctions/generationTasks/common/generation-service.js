@@ -19,6 +19,7 @@ function validateGenerationInput(input) {
   if (!input.modelId?.trim()) throw new Error(isVideoMode ? '请选择视频模型' : '请选择图像模型')
   if (input.width < minDimension || input.width > 4096) throw new Error(`宽度必须在 ${minDimension} 到 4096 之间`)
   if (input.height < minDimension || input.height > 4096) throw new Error(`高度必须在 ${minDimension} 到 4096 之间`)
+  if (input.mode === 'img2img' && !input.referenceImage) throw new Error('图生图需要先上传参考图')
   if (input.mode === 'img2video' && !input.referenceImage) throw new Error('图生视频需要先上传参考图')
 }
 

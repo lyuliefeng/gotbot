@@ -1,17 +1,21 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
-const crypto = require('node:crypto')
 
 const outputRoot = path.join('/tmp', 'gotbot-cloudfunctions-bundled')
 const deployRoot = path.join('/tmp', 'gotbot-cloudbase-deploy')
 const envId = process.env.CLOUDBASE_ENV_ID || 'cloud1-d5g01k4t5decfcc5c'
 const platformKey = process.env.PLATFORM_IMAGE_API_KEY || ''
 const platformTextKey = process.env.PLATFORM_TEXT_API_KEY || platformKey
-const secret = process.env.GOTBOT_MINIPROGRAM_SECRET || crypto.randomBytes(32).toString('hex')
+const secret = process.env.GOTBOT_MINIPROGRAM_SECRET || ''
 
 if (!platformKey) {
   console.error('Missing PLATFORM_IMAGE_API_KEY')
+  process.exit(1)
+}
+
+if (!secret) {
+  console.error('Missing GOTBOT_MINIPROGRAM_SECRET. Use a stable secret; changing it breaks saved user API keys.')
   process.exit(1)
 }
 

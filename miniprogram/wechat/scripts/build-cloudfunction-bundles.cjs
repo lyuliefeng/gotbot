@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, '../..')
 const sourceRoot = path.join(root, 'cloudfunctions')
 const outputRoot = process.argv[2] ? path.resolve(process.argv[2]) : path.join('/tmp', 'gotbot-cloudfunctions-bundled')
 
-const functions = ['login', 'modelProfiles', 'generationTasks', 'promptPacks']
+const functions = ['login', 'modelProfiles', 'generationTasks', 'promptPacks', 'promptPolish']
 const modules = [
   'common/crypto.js',
   'common/db.js',

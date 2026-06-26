@@ -1,5 +1,8 @@
 const assert = require('node:assert/strict')
 const path = require('node:path')
+const fs = require('node:fs')
+const os = require('node:os')
+const { spawnSync } = require('node:child_process')
 
 const cloudRoot = path.resolve(__dirname, '../../cloudfunctions')
 const context = { OPENID: 'smoke-openid' }
@@ -13,6 +16,11 @@ async function invoke(name, event) {
 }
 
 async function main() {
+  const bundleOut = fs.mkdtempSync(path.join(os.tmpdir(), 'gotbot-cloud-bundle-smoke-'))
+  const bundleResult = spawnSync(process.execPath, [path.join(__dirname, 'build-cloudfunction-bundles.cjs'), bundleOut], { encoding: 'utf8' })
+  assert.equal(bundleResult.status, 0, bundleResult.stderr || bundleResult.stdout)
+  assert.ok(fs.existsSync(path.join(bundleOut, 'promptPolish', 'index.js')), 'promptPolish must be included in cloud function bundles')
+
   const login = await invoke('login', { action: 'bootstrap' })
   assert.equal(login.openid, context.OPENID)
 
@@ -71,6 +79,26 @@ async function main() {
     console.log('Cloud function smoke test passed without live Agnes key.')
     return
   }
+
+  const generationMod = require(path.join(cloudRoot, 'generationTasks', 'index.js'))
+  const missingReference = await generationMod.main({
+    action: 'create',
+    input: {
+      mode: 'img2img',
+      prompt: 'smoke image edit',
+      negativePrompt: '',
+      modelId: 'smoke-model',
+      width: 512,
+      height: 512,
+      batchSize: 1,
+      steps: 20,
+      seed: 1,
+      style: '自然',
+      modeOptions: { toolId: 'image-to-image' },
+    },
+  }, context)
+  assert.equal(missingReference.ok, false)
+  assert.match(missingReference.error, /图生图需要先上传参考图/)
 
   const task = await invoke('generationTasks', {
     action: 'create',
