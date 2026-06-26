@@ -16,30 +16,29 @@
 }
 
 .library-toolbar {
-  padding: 18rpx;
+  padding: 12rpx;
 }
 
 .library-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10rpx;
-  padding: 6rpx;
+  gap: 8rpx;
+  padding: 5rpx;
   border: 1rpx solid #dbe5ee;
-  border-radius: 14rpx;
+  border-radius: 12rpx;
   background: #f8fbfd;
 }
 
 .library-tab {
-  min-height: 68rpx;
-  padding: 0 8rpx;
+  height: 72rpx;
+  min-height: 72rpx;
+  padding: 8rpx 4rpx;
   border: 0;
-  border-radius: 10rpx;
+  border-radius: 9rpx;
   background: transparent;
   color: #475569;
-  font-size: 25rpx;
-  font-weight: 700;
-  line-height: 68rpx;
-  white-space: nowrap;
+  line-height: 1.1;
+  overflow: hidden;
 }
 
 .library-tab.active {
@@ -49,6 +48,27 @@
 
 .library-tab::after {
   border: 0;
+}
+
+.tab-label {
+  color: inherit;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.tab-count {
+  margin-top: 5rpx;
+  color: inherit;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .library-summary {

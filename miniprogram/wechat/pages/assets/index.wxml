@@ -7,9 +7,18 @@
 
   <view class="section library-toolbar">
     <view class="library-tabs">
-      <button class="library-tab {{imageTabClass}}" data-library="image" bindtap="switchLibrary">{{imageCountText}}</button>
-      <button class="library-tab {{videoTabClass}}" data-library="video" bindtap="switchLibrary">{{videoCountText}}</button>
-      <button class="library-tab {{favoriteTabClass}}" data-library="favorite" bindtap="switchLibrary">{{favoriteCountText}}</button>
+      <button class="library-tab {{imageTabClass}}" data-library="image" bindtap="switchLibrary">
+        <view class="tab-label">图片</view>
+        <view class="tab-count">{{imageCountText}}</view>
+      </button>
+      <button class="library-tab {{videoTabClass}}" data-library="video" bindtap="switchLibrary">
+        <view class="tab-label">视频</view>
+        <view class="tab-count">{{videoCountText}}</view>
+      </button>
+      <button class="library-tab {{favoriteTabClass}}" data-library="favorite" bindtap="switchLibrary">
+        <view class="tab-label">收藏</view>
+        <view class="tab-count">{{favoriteCountText}}</view>
+      </button>
     </view>
   </view>
 
