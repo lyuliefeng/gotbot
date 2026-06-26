@@ -139,6 +139,23 @@ Page({
     this.setData({ [event.currentTarget.dataset.field]: event.detail.value })
   },
 
+  localPolishPrompt(text) {
+    const source = text || `${this.data.activeTool.title}，主体明确，画面完整，适合商业创作`
+    return `${source}，清晰主体，丰富细节，自然光影，构图稳定，高级质感，画面干净，适合移动端展示`
+  },
+
+  localPolishNegativePrompt(text) {
+    const additions = ['低清晰度', '模糊', '变形', '文字水印', '错误手部', '画面撕裂', '重复主体', '畸形结构', '过曝', '低质感']
+    const existing = new Set(String(text || '').split(/[，,]/).map((item) => item.trim()).filter(Boolean))
+    additions.forEach((item) => existing.add(item))
+    return Array.from(existing).join('，')
+  },
+
+  isPromptPolishMissing(error) {
+    const message = error.message || error.errMsg || ''
+    return message.includes('promptPolish') && message.includes('未部署')
+  },
+
   async polishPrompt() {
     if (this.data.polishingPrompt) return
     const text = (this.data.prompt || '').trim()
@@ -152,7 +169,11 @@ Page({
       })
       this.setData({ prompt: result.text || text, notice: `已用 ${result.model || 'agnes-2.0-flash'} 润色提示词` })
     } catch (error) {
-      this.setData({ error: error.message || '提示词润色失败' })
+      if (this.isPromptPolishMissing(error)) {
+        this.setData({ prompt: this.localPolishPrompt(text), notice: 'AI 润色云函数未部署，已先使用本地润色' })
+      } else {
+        this.setData({ error: error.message || '提示词润色失败' })
+      }
     } finally {
       this.setData({ polishingPrompt: false, polishPromptText: 'AI 提示词润色' })
     }
@@ -171,7 +192,11 @@ Page({
       })
       this.setData({ negativePrompt: result.text || text, notice: `已用 ${result.model || 'agnes-2.0-flash'} 润色反向提示词` })
     } catch (error) {
-      this.setData({ error: error.message || '反向提示词润色失败' })
+      if (this.isPromptPolishMissing(error)) {
+        this.setData({ negativePrompt: this.localPolishNegativePrompt(text), notice: 'AI 润色云函数未部署，已先使用本地润色' })
+      } else {
+        this.setData({ error: error.message || '反向提示词润色失败' })
+      }
     } finally {
       this.setData({ polishingNegativePrompt: false, polishNegativePromptText: 'AI 反向提示词润色' })
     }

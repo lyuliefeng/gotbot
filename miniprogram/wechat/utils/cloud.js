@@ -9,7 +9,15 @@ function callFunction(name, data) {
   if (!wx.cloud) {
     return Promise.reject(new Error('当前基础库不支持云开发，请在微信开发者工具中开启云开发'))
   }
-  return wx.cloud.callFunction({ name, data }).then((res) => normalizeResult(res.result))
+  return wx.cloud.callFunction({ name, data })
+    .then((res) => normalizeResult(res.result))
+    .catch((error) => {
+      const message = error.errMsg || error.message || ''
+      if (message.includes('FUNCTION_NOT_FOUND') || message.includes('FunctionName parameter could not be found')) {
+        throw new Error(`云函数 ${name} 未部署，请先部署云函数`)
+      }
+      throw error
+    })
 }
 
 module.exports = { callFunction }
