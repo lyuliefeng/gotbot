@@ -30,13 +30,15 @@ Page({
     height: tools[0].height,
     batchSize: 1,
     steps: 28,
-    seed: 128409,
+    seed: Math.floor(Math.random() * 1000000),
     referenceImage: '',
     referenceBackdropVisible: false,
     currentTask: null,
     isVideoResult: false,
     currentAssets: [],
     composerOpen: false,
+    composerMaskClass: '',
+    composerPanelClass: '',
     composerTitle: tools[0].title,
     composerSubtitle: '图片通道 · 自动匹配图像模型',
     resolutionOptions: ['1024 x 1024', '1080 x 1440', '1280 x 720', '768 x 768'],
@@ -54,6 +56,22 @@ Page({
   onShow() {
     const state = loadState()
     this.applyModelsForTool(this.data.activeTool, state.models || [], state)
+    const activePrompt = wx.getStorageSync('gotbot-active-prompt')
+    if (activePrompt) {
+      wx.removeStorageSync('gotbot-active-prompt')
+      this.setData({ prompt: activePrompt }, () => this.openComposer())
+    }
+  },
+
+  openComposer() {
+    if (this.data.composerOpen) {
+      this.setData({ composerMaskClass: 'visible', composerPanelClass: 'visible' })
+      return
+    }
+    this.setData({ composerOpen: true, composerMaskClass: '', composerPanelClass: '' })
+    setTimeout(() => {
+      this.setData({ composerMaskClass: 'visible', composerPanelClass: 'visible' })
+    }, 20)
   },
 
   kindLabel(kind) {
@@ -93,7 +111,6 @@ Page({
       activeToolId: tool.id,
       activeTool: tool,
       toolTabs: decorateTools(tool.id),
-      composerOpen: true,
       composerTitle: tool.title,
       prompt: '',
       negativePrompt: tool.negativeSeed || this.data.negativePrompt,
@@ -102,13 +119,17 @@ Page({
       resolutionIndex,
       batchSize: tool.modelKind === 'video' ? 1 : this.data.batchSize,
       referenceBackdropVisible: Boolean(tool.referenceRequired && this.data.referenceImage),
+      referenceImage: tool.referenceRequired ? this.data.referenceImage : '',
       error: '',
-    })
+    }, () => this.openComposer())
     this.applyModelsForTool(tool, state.models || this.data.allModels || [], state)
   },
 
   closeComposer() {
-    this.setData({ composerOpen: false, error: '', notice: '' })
+    this.setData({ composerMaskClass: '', composerPanelClass: '', error: '', notice: '' })
+    setTimeout(() => {
+      this.setData({ composerOpen: false })
+    }, 180)
   },
 
   noop() {},
@@ -224,7 +245,7 @@ Page({
       height: Number(this.data.height),
       batchSize: Number(this.data.batchSize),
       steps: Number(this.data.steps),
-      seed: Number(this.data.seed),
+      seed: Math.floor(Math.random() * 1000000),
       style: '自然',
       referenceImage: this.data.referenceImage,
       modeOptions: { toolId: this.data.activeTool.id },
@@ -260,6 +281,12 @@ Page({
   saveAsset(event) {
     const url = event.currentTarget.dataset.url
     if (!url) return
-    wx.downloadFile({ url }).then((res) => wx.saveImageToPhotosAlbum({ filePath: res.tempFilePath }))
+    wx.downloadFile({ url })
+      .then((res) => wx.saveImageToPhotosAlbum({ filePath: res.tempFilePath }))
+      .then(() => wx.showToast({ title: '已保存', icon: 'success' }))
+      .catch((err) => {
+        const msg = String(err.errMsg || '').includes('auth deny') ? '请在设置中允许访问相册' : '保存失败'
+        wx.showToast({ title: msg, icon: 'none' })
+      })
   },
 })

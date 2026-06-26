@@ -29,13 +29,13 @@
         <image class="preview" src="{{item.assetUrl}}" mode="aspectFill" data-url="{{item.assetUrl}}" bindtap="previewAsset" />
         <view>{{item.title}}</view>
         <view class="muted">{{item.width}} x {{item.height}}</view>
-        <button class="button-soft" data-url="{{item.remoteUrl}}" bindtap="saveAsset">保存</button>
+        <button class="button-soft" data-url="{{item.assetUrl}}" bindtap="saveAsset">保存</button>
       </view>
     </view>
   </view>
 
-  <view wx:if="{{composerOpen}}" class="composer-mask" catchtap="closeComposer">
-    <view class="composer-panel" catchtap="noop">
+  <view wx:if="{{composerOpen}}" class="composer-mask {{composerMaskClass}}" catchtap="closeComposer">
+    <view class="composer-panel {{composerPanelClass}}" catchtap="noop">
       <image wx:if="{{referenceBackdropVisible}}" class="reference-backdrop" src="{{referenceImage}}" mode="aspectFill" />
       <view class="composer-header">
         <view>
