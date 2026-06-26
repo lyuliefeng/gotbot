@@ -21,7 +21,7 @@ function sanitizeProfile(profile) {
 const PROFILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
 
 const PROFILE_WHITELIST = [
-  'name', 'endpoint', 'apiPath', 'apiProtocol', 'model', 'kind', 'keyMode', 'comment',
+  'name', 'endpoint', 'apiPath', 'apiProtocol', 'model', 'kind', 'keyMode', 'comment', 'latencyMs',
 ]
 
 function whitelistProfile(profile) {
@@ -41,8 +41,26 @@ function modelsUrl(endpoint) {
   return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`
 }
 
+function classifyModel(item) {
+  const raw = String(item.id || item.name || item.model || '').toLowerCase()
+  if (/video|wan|kling|hailuo|runway|pika|luma|sora|veo|seedance/.test(raw)) return 'video'
+  if (/image|img|flux|dall|gpt-image|midjourney|stable|sdxl|sd-|dream|recraft|ideogram|kolors|agnes-image/.test(raw)) return 'image'
+  if (/vision|vl|omni|multimodal|chat|text|gpt|qwen|deepseek|claude|gemini|llama|kimi|agnes-\d|flash|turbo|instruct|embedding/.test(raw)) return 'text'
+  return 'text'
+}
+
+function normalizeModels(payload, latencyMs) {
+  const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : Array.isArray(payload) ? payload : []
+  return items.map((item) => {
+    const id = String(item.id || item.name || item.model || '').replace(/^models\//, '')
+    const name = item.name || id
+    return { id, name, kind: classifyModel({ id, name }), latencyMs }
+  }).filter((item) => item.id)
+}
+
 function requestJson(url, apiKey) {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now()
     const parsed = new URL(url)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       reject(new Error('仅支持 HTTP/HTTPS 协议'))
@@ -64,7 +82,8 @@ function requestJson(url, apiKey) {
           reject(new Error(data.error?.message || data.message || `模型拉取失败：${res.statusCode}`))
           return
         }
-        resolve(data)
+        const latencyMs = Date.now() - startedAt
+        resolve({ raw: data, models: normalizeModels(data, latencyMs), latencyMs })
       })
     })
     req.on('error', reject)

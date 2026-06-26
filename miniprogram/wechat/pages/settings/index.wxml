@@ -2,7 +2,7 @@
   <view class="settings-hero">
     <view class="eyebrow">Model Hub</view>
     <view class="title">模型配置</view>
-    <view class="subtitle">添加自己的第三方图片或视频接口，创作工作台会按通道自动匹配。</view>
+    <view class="subtitle">第三方接口统一归纳为文字/多模态、生图、生视频三类，并优先使用低延迟模型。</view>
   </view>
 
   <view class="section config-section">
@@ -29,7 +29,7 @@
     <view class="field">
       <view class="label">第三方接口地址</view>
       <input class="input" value="{{draft.endpoint}}" data-field="endpoint" bindinput="onInput" placeholder="https://api.example.com" />
-      <view class="hint">兼容 OpenAI v1 图片接口，暂不需要选择 API Path。</view>
+      <view class="hint">兼容 OpenAI v1，拉取模型后会自动识别类别并记录网络延迟。</view>
     </view>
 
     <view class="field">
@@ -41,7 +41,7 @@
     <view class="field">
       <view class="label">模型 ID</view>
       <view class="selected-model">{{currentModelText}}</view>
-      <button class="button-soft fetch-button" loading="{{isFetchingModels}}" bindtap="fetchModels">拉取模型列表</button>
+      <button class="button-soft fetch-button" loading="{{isFetchingModels}}" bindtap="fetchModels">扫描并测速模型</button>
       <picker wx:if="{{modelOptions.length}}" mode="selector" range="{{modelOptions}}" range-key="name" value="{{modelIndex}}" bindchange="onModelChange">
         <view class="picker-box model-picker">{{currentModelLabel}}</view>
       </picker>
@@ -61,7 +61,7 @@
     <view class="section-heading">
       <view>
         <view class="title compact-title">已配置模型</view>
-        <view class="subtitle">这里只显示你添加的第三方接口。</view>
+        <view class="subtitle">按三类能力归纳，扫描延迟低的模型会优先选中。</view>
       </view>
     </view>
     <view wx:for="{{models}}" wx:key="id" class="model-item">

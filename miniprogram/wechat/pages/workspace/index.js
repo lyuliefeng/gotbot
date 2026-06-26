@@ -75,10 +75,12 @@ Page({
   },
 
   kindLabel(kind) {
-    return kind === 'video' ? '视频' : '图片'
+    if (kind === 'text') return '文字/多模态'
+    return kind === 'video' ? '生视频' : '生图'
   },
 
   emptyModelText(kind) {
+    if (kind === 'text') return '暂无文字/多模态模型，请先去设置'
     return kind === 'video' ? '暂无视频模型，请先去设置' : '暂无图像模型，请先去设置'
   },
 
@@ -258,6 +260,7 @@ Page({
       validateGenerationInput(input)
       this.setData({ loading: true, generateButtonText: '生成中', error: '', notice: '' })
       const task = await callFunction('generationTasks', { action: 'create', input })
+      if (!task || !task.assets) throw new Error('云函数未返回生成结果')
       const assetKind = input.assetKind || (this.data.activeTool.modelKind === 'video' ? 'video' : 'image')
       const currentAssets = (await resolveAssetUrls(task.assets || [])).map((asset) => ({ ...asset, assetKind: asset.assetKind || assetKind }))
       const storedTask = { ...task, assetKind: task.assetKind || assetKind, assets: currentAssets }

@@ -4,25 +4,28 @@ const { loadState, saveState } = require('../../utils/state')
 const apiProtocol = 'openai-images'
 const apiPath = 'v1/images/generations'
 const nameOptions = [
-  { label: 'OpenAI 兼容', value: 'OpenAI 兼容模型', endpoint: '', model: '', kind: 'image' },
-  { label: '视频接口', value: '第三方视频模型', endpoint: '', model: '', kind: 'video' },
+  { label: '文字/多模态', value: '第三方文字模型', endpoint: '', model: '', kind: 'text' },
+  { label: '生图接口', value: '第三方生图模型', endpoint: '', model: '', kind: 'image' },
+  { label: '生视频接口', value: '第三方生视频模型', endpoint: '', model: '', kind: 'video' },
   { label: '自定义', value: '', kind: 'image' },
 ]
+const customNameIndex = nameOptions.length - 1
 const kindOptions = [
-  { label: '图片模型', value: 'image', hint: '文生图、图生图、封面、ICON、3D 图和 GIF 会自动使用这个通道。' },
-  { label: '视频模型', value: 'video', hint: '视频创作会自动只显示这个通道的模型。' },
+  { label: '文字/多模态识别', value: 'text', hint: '用于文字对话、多模态识别、提示词处理等能力。' },
+  { label: '生图模型', value: 'image', hint: '文生图、图生图、封面、ICON、3D 图和 GIF 会自动使用这个通道。' },
+  { label: '生视频模型', value: 'video', hint: '文生视频和图生视频会自动只显示这个通道的模型。' },
 ]
 function emptyDraft() {
   return {
     id: '',
-    name: 'OpenAI 兼容模型',
+    name: '第三方文字模型',
     provider: 'openai-compatible',
     endpoint: '',
     apiPath,
     apiProtocol,
     apiKey: '',
     model: '',
-    kind: 'image',
+    kind: 'text',
     keyMode: 'user',
     isPrimary: false,
     status: 'untested',
@@ -34,21 +37,26 @@ function isThirdPartyModel(model) {
 }
 
 function decorateModel(model) {
-  const kindLabel = model.kind === 'video' ? '视频' : '图片'
+  const kindLabel = currentKindOption(model.kind).shortLabel
+  const latencyText = typeof model.latencyMs === 'number' ? ` · ${model.latencyMs}ms` : ''
   return {
     ...model,
     kindLabel,
     keyModeLabel: '第三方 Key',
-    summary: `${kindLabel}通道 · 第三方接口 · ${model.model || '未选择模型'}`,
+    summary: `${kindLabel} · 第三方接口${latencyText} · ${model.model || '未选择模型'}`,
   }
 }
 
 function currentKindOption(kind) {
-  return kindOptions.find((item) => item.value === kind) || kindOptions[0]
+  const option = kindOptions.find((item) => item.value === kind) || kindOptions[0]
+  return { ...option, shortLabel: option.value === 'text' ? '文字/多模态' : option.value === 'video' ? '生视频' : '生图' }
 }
 
 function modelPickerLabel(options, index) {
-  if (index >= 0 && options[index]) return `选择模型：${options[index].name}`
+  if (index >= 0 && options[index]) {
+    const latency = typeof options[index].latencyMs === 'number' ? ` · ${options[index].latencyMs}ms` : ''
+    return `选择模型：${options[index].name}${latency}`
+  }
   return '选择模型：请选择'
 }
 
@@ -62,11 +70,41 @@ function modelsUrl(endpoint) {
 }
 
 function normalizeModels(payload) {
-  const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : Array.isArray(payload) ? payload : []
+  const latencyMs = typeof payload?.latencyMs === 'number' ? payload.latencyMs : undefined
+  const items = Array.isArray(payload?.models) ? payload.models : Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []
   return items.map((item) => {
     const id = String(item.id || item.name || item.model || '').replace(/^models\//, '')
-    return { id, name: item.name || id }
+    return { id, name: item.name || id, kind: item.kind || classifyModel(id), latencyMs: typeof item.latencyMs === 'number' ? item.latencyMs : latencyMs }
   }).filter((item) => item.id)
+}
+
+function classifyModel(value) {
+  const raw = String(value || '').toLowerCase()
+  if (/video|wan|kling|hailuo|runway|pika|luma|sora|veo|seedance/.test(raw)) return 'video'
+  if (/image|img|flux|dall|gpt-image|midjourney|stable|sdxl|sd-|dream|recraft|ideogram|kolors|agnes-image/.test(raw)) return 'image'
+  return 'text'
+}
+
+function bestModelForKind(models, kind) {
+  const scoped = models.filter((model) => (model.kind || 'text') === kind)
+  return scoped.slice().sort((a, b) => (a.latencyMs || Number.MAX_SAFE_INTEGER) - (b.latencyMs || Number.MAX_SAFE_INTEGER))[0] || scoped[0] || models[0]
+}
+
+function applyModelDiscovery(models, kind) {
+  const selected = bestModelForKind(models, kind)
+  const selectedIndex = selected ? models.findIndex((item) => item.id === selected.id) : -1
+  return {
+    modelOptions: models,
+    modelIndex: selectedIndex,
+    currentModelLabel: modelPickerLabel(models, selectedIndex),
+    currentModelText: selected ? selected.id : '未选择模型',
+    'draft.model': selected ? selected.id : '',
+    'draft.kind': selected ? selected.kind : kind,
+    kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === (selected ? selected.kind : kind))),
+    currentKindLabel: currentKindOption(selected ? selected.kind : kind).label,
+    kindHint: currentKindOption(selected ? selected.kind : kind).hint,
+    showManualModelInput: false,
+  }
 }
 
 Page({
@@ -99,8 +137,10 @@ Page({
         const next = loadState()
         const platformModels = (next.models || []).filter((model) => !isThirdPartyModel(model))
         next.models = platformModels.concat(models)
-        const primaryImage = models.find((model) => model.isPrimary && (model.kind || 'image') !== 'video')
+        const primaryText = models.find((model) => model.isPrimary && model.kind === 'text')
+        const primaryImage = models.find((model) => model.isPrimary && (model.kind || 'image') === 'image')
         const primaryVideo = models.find((model) => model.isPrimary && model.kind === 'video')
+        if (primaryText) next.defaultTextModelId = primaryText.id
         if (primaryImage) next.defaultModelId = primaryImage.id
         if (primaryVideo) next.defaultVideoModelId = primaryVideo.id
         saveState(next)
@@ -141,7 +181,7 @@ Page({
       next.currentModelText = preset.model || '先拉取或手动填写模型 ID'
     } else {
       next['draft.name'] = ''
-      next['draft.kind'] = 'image'
+      next['draft.kind'] = 'text'
       next['draft.keyMode'] = 'user'
       next.kindIndex = 0
       next.currentKindLabel = kindOptions[0].label
@@ -177,6 +217,10 @@ Page({
       currentModelText: model.id,
       showManualModelInput: false,
       'draft.model': model.id,
+      'draft.kind': model.kind || this.data.draft.kind,
+      kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === (model.kind || this.data.draft.kind))),
+      currentKindLabel: currentKindOption(model.kind || this.data.draft.kind).label,
+      kindHint: currentKindOption(model.kind || this.data.draft.kind).hint,
       notice: `已选择 ${model.name || model.id}`,
       error: '',
     })
@@ -197,14 +241,12 @@ Page({
       .then((result) => {
         const models = normalizeModels(result.availableModels || result.models || result)
         if (!models.length) throw new Error('没有拉取到可选模型')
+        const next = applyModelDiscovery(models, draft.kind || 'text')
         this.setData({
-          modelOptions: models,
-          modelIndex: models.findIndex((item) => item.id === draft.model),
-          currentModelLabel: modelPickerLabel(models, models.findIndex((item) => item.id === draft.model)),
-          currentModelText: draft.model || '未选择模型',
+          ...next,
           showManualModelInput: false,
           isFetchingModels: false,
-          notice: `已拉取 ${models.length} 个模型，请选择模型 ID`,
+          notice: `已扫描 ${models.length} 个模型，已优先选择${currentKindOption(next['draft.kind']).shortLabel}最低延迟模型`,
           error: '',
         })
       })
@@ -232,14 +274,12 @@ Page({
           this.setData({ isFetchingModels: false, error: '没有拉取到可选模型' })
           return
         }
+        const next = applyModelDiscovery(models, draft.kind || 'text')
         this.setData({
-          modelOptions: models,
-          modelIndex: models.findIndex((item) => item.id === draft.model),
-          currentModelLabel: modelPickerLabel(models, models.findIndex((item) => item.id === draft.model)),
-          currentModelText: draft.model || '未选择模型',
+          ...next,
           showManualModelInput: false,
           isFetchingModels: false,
-          notice: `已拉取 ${models.length} 个模型，请选择模型 ID`,
+          notice: `已扫描 ${models.length} 个模型，已优先选择${currentKindOption(next['draft.kind']).shortLabel}最低延迟模型`,
           error: '',
         })
       },
@@ -252,8 +292,8 @@ Page({
     if (!model) return
     this.setData({
       draft: { ...emptyDraft(), ...model, apiProtocol, apiPath, endpoint: normalizeEndpoint(model.endpoint), apiKey: '', keyMode: 'user' },
-      nameIndex: 2,
-      currentNameLabel: nameOptions[2].label,
+      nameIndex: customNameIndex,
+      currentNameLabel: nameOptions[customNameIndex].label,
       showCustomName: true,
       kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === (model.kind || 'image'))),
       currentKindLabel: currentKindOption(model.kind).label,
@@ -275,7 +315,8 @@ Page({
       if (index >= 0) models[index] = saved
       else models.push(saved)
       state.models = models
-      if ((saved.kind || 'image') === 'video') state.defaultVideoModelId = state.defaultVideoModelId || saved.id
+      if (saved.kind === 'text') state.defaultTextModelId = state.defaultTextModelId || saved.id
+      else if (saved.kind === 'video') state.defaultVideoModelId = state.defaultVideoModelId || saved.id
       else state.defaultModelId = state.defaultModelId || saved.id
       saveState(state)
       this.setData({
@@ -318,7 +359,8 @@ Page({
     await callFunction('modelProfiles', { action: 'delete', id }).catch(() => true)
     const state = loadState()
     state.models = (state.models || []).filter((model) => model.id !== id)
-    if (state.defaultModelId === id) state.defaultModelId = (state.models.find((m) => (m.kind || 'image') !== 'video') || {}).id || ''
+    if (state.defaultTextModelId === id) state.defaultTextModelId = (state.models.find((m) => m.kind === 'text') || {}).id || ''
+    if (state.defaultModelId === id) state.defaultModelId = (state.models.find((m) => (m.kind || 'image') === 'image') || {}).id || ''
     if (state.defaultVideoModelId === id) state.defaultVideoModelId = (state.models.find((m) => m.kind === 'video') || {}).id || ''
     saveState(state)
     this.setData({ models: state.models.filter(isThirdPartyModel).map(decorateModel) })
