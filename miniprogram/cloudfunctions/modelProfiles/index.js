@@ -4,8 +4,16 @@ const { createHash, randomUUID } = require('node:crypto')
 const { decryptText, encryptText } = require('./common/crypto')
 const { list, remove, upsert } = require('./common/db')
 const { testProfile } = require('./common/generation-service')
-const { pickPlatformImageKey } = require('./common/platform-keys')
+const { pickPlatformImageKey, pickPlatformTextKey } = require('./common/platform-keys')
 const { fail, ok } = require('./common/types')
+
+const DEFAULT_PROVIDER = {
+  name: '默认 GoGoing API',
+  endpoint: 'https://api.gogoing.kdns.fr',
+  apiPath: 'v1/images/generations',
+  apiProtocol: 'openai-images',
+  keyMode: 'platform',
+}
 
 function resolveOpenid(context, event) {
   const openid = context.OPENID
@@ -49,8 +57,8 @@ function modelsUrl(endpoint) {
 
 function classifyModel(item) {
   const raw = String(item.id || item.name || item.model || '').toLowerCase()
-  if (/video|wan|kling|hailuo|runway|pika|luma|sora|veo|seedance/.test(raw)) return 'video'
-  if (/image|img|flux|dall|gpt-image|midjourney|stable|sdxl|sd-|dream|recraft|ideogram|kolors|agnes-image/.test(raw)) return 'image'
+  if (/video|视频|生视频|文生视频|图生视频|wan|kling|hailuo|runway|pika|luma|sora|veo|seedance/.test(raw)) return 'video'
+  if (/image|图片|图像|生图|文生图|图生图|img|flux|dall|gpt-image|midjourney|stable|sdxl|sd-|dream|recraft|ideogram|kolors|agnes-image/.test(raw)) return 'image'
   if (/vision|vl|omni|multimodal|chat|text|gpt|qwen|deepseek|claude|gemini|llama|kimi|agnes-\d|flash|turbo|instruct|embedding/.test(raw)) return 'text'
   return 'text'
 }
@@ -117,6 +125,48 @@ function stableProfileId(profile) {
   return `model-${hash}`
 }
 
+function platformKeyForKind(kind) {
+  return kind === 'text' ? pickPlatformTextKey() : pickPlatformImageKey()
+}
+
+function apiPathForKind(kind) {
+  if (kind === 'text') return 'v1/chat/completions'
+  if (kind === 'video') return 'v1/video/generations'
+  return 'v1/images/generations'
+}
+
+function protocolForKind(kind) {
+  return kind === 'text' ? 'multimodal-chat' : 'openai-images'
+}
+
+async function saveDiscoveredProfiles({ openid, models, provider, apiKey, keyMode }) {
+  const saved = []
+  for (const model of models) {
+    const kind = model.kind || 'text'
+    const profile = {
+      name: `${provider.name} · ${model.name || model.id}`,
+      endpoint: provider.endpoint,
+      apiPath: apiPathForKind(kind),
+      apiProtocol: protocolForKind(kind),
+      model: model.id,
+      kind,
+      keyMode,
+      latencyMs: model.latencyMs,
+      status: 'untested',
+    }
+    const item = await upsert('modelProfiles', (existing) => existing.id === stableProfileId(profile) && existing.openid === openid, {
+      ...profile,
+      id: stableProfileId(profile),
+      openid,
+      encryptedApiKey: keyMode === 'user' ? encryptText(apiKey || '') : '',
+      apiKey: undefined,
+      updatedAt: new Date().toISOString(),
+    })
+    saved.push(sanitizeProfile(item))
+  }
+  return saved
+}
+
 exports.main = async function main(event = {}, context = {}) {
   try {
     if (event.action === 'discover') {
@@ -171,6 +221,22 @@ exports.main = async function main(event = {}, context = {}) {
         saved.push(sanitizeProfile(item))
       }
       return ok(saved)
+    }
+
+    if (event.action === 'resetDefaultProvider') {
+      const apiKey = pickPlatformImageKey() || pickPlatformTextKey()
+      if (!apiKey) throw new Error('平台默认 API Key 未配置')
+      const discovered = await requestJson(modelsUrl(DEFAULT_PROVIDER.endpoint), apiKey)
+      if (!discovered.models.length) throw new Error('默认接口没有发现可用模型')
+      await remove('modelProfiles', (item) => item.openid === openid)
+      const saved = await saveDiscoveredProfiles({
+        openid,
+        models: discovered.models,
+        provider: DEFAULT_PROVIDER,
+        apiKey: '',
+        keyMode: 'platform',
+      })
+      return ok({ models: saved, latencyMs: discovered.latencyMs })
     }
 
     if (event.action === 'delete') {

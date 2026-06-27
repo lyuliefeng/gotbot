@@ -10,6 +10,7 @@ function loadState() {
     prompts,
     tasks: [],
     defaultModelId: defaultModels[0].id,
+    defaultVideoModelId: defaultModels[1] ? defaultModels[1].id : '',
   }
 }
 

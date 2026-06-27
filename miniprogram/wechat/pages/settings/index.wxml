@@ -2,77 +2,118 @@
   <view class="settings-hero">
     <view class="eyebrow">Model Hub</view>
     <view class="title">模型配置</view>
-    <view class="subtitle">填入一个第三方 API，自动识别并导入文字/多模态、生图、生视频三类模型。</view>
+    <view class="subtitle">已内置默认 API，自动识别并导入文字、生图、生视频三类模型。</view>
+    <view class="default-provider-box">
+      <view class="default-provider-label">默认接口</view>
+      <view class="default-provider-url">{{defaultProviderEndpoint}}</view>
+      <button class="button-soft fetch-button" loading="{{isResettingDefault}}" bindtap="refreshDefaultProvider">重新扫描默认接口</button>
+    </view>
   </view>
 
-  <view class="section config-section">
-
-    <view class="field">
-      <view class="label">名称</view>
-      <picker mode="selector" range="{{nameOptions}}" value="{{nameIndex}}" bindchange="onNameModeChange">
-        <view class="picker-box">{{currentNameLabel}}</view>
-      </picker>
+  <!-- 快捷入口按钮组 -->
+  <view wx:if="{{false}}" class="quick-actions">
+    <view class="quick-btn" bindtap="onQuickAdd" data-kind="image">
+      <view class="quick-icon">🎨</view>
+      <view class="quick-label">添加生图模型</view>
+      <view class="quick-desc">文生图、封面、ICON</view>
     </view>
-    <view wx:if="{{showCustomName}}" class="field">
-      <view class="label">自定义名称</view>
-      <input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="例如：公司图像模型" />
+    <view class="quick-btn" bindtap="onQuickAdd" data-kind="video">
+      <view class="quick-icon">🎬</view>
+      <view class="quick-label">添加视频模型</view>
+      <view class="quick-desc">文生视频、图生视频</view>
     </view>
-
-    <view class="field">
-      <view class="label">模型类型</view>
-      <picker mode="selector" range="{{kindLabels}}" value="{{kindIndex}}" bindchange="onKindChange">
-        <view class="picker-box channel-picker">{{currentKindLabel}}</view>
-      </picker>
-      <view class="hint">{{kindHint}}</view>
+    <view class="quick-btn" bindtap="onQuickAdd" data-kind="text">
+      <view class="quick-icon">💬</view>
+      <view class="quick-label">添加文字模型</view>
+      <view class="quick-desc">对话、多模态识别</view>
     </view>
-
-    <view class="field">
-      <view class="label">第三方接口地址</view>
-      <input class="input" value="{{draft.endpoint}}" data-field="endpoint" bindinput="onInput" placeholder="https://api.example.com" />
-      <view class="hint">兼容 OpenAI v1，扫描后会把同一个 API 下的模型自动拆分到三类。</view>
-    </view>
-
-    <view class="field">
-      <view class="label">API Key</view>
-      <input class="input" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="sk-..." />
-      <view class="hint">只保存在云函数加密存储中，小程序列表不会展示明文。</view>
-    </view>
-
-    <view class="field">
-      <view class="label">模型 ID</view>
-      <view class="selected-model">{{currentModelText}}</view>
-      <button class="button-soft fetch-button" loading="{{isFetchingModels}}" bindtap="fetchModels">扫描并导入模型</button>
-      <picker wx:if="{{modelOptions.length}}" mode="selector" range="{{modelOptions}}" range-key="name" value="{{modelIndex}}" bindchange="onModelChange">
-        <view class="picker-box model-picker">{{currentModelLabel}}</view>
-      </picker>
-      <button class="link-button" bindtap="toggleManualModelInput">没有拉取到？手动填写模型 ID</button>
-      <input wx:if="{{showManualModelInput}}" class="input manual-model-input" value="{{draft.model}}" data-field="model" bindinput="onInput" placeholder="例如：agnes-image-2.1-flash" />
-    </view>
-
-    <view class="actions">
-      <button class="button-primary" bindtap="save">保存模型</button>
-      <button class="button-soft" bindtap="testModel">检测连接</button>
-    </view>
-    <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
-    <view wx:if="{{error}}" class="danger-text">{{error}}</view>
   </view>
 
+  <!-- 添加模型表单（折叠面板） -->
+  <view wx:if="{{formOpen}}" class="section form-panel">
+    <view class="form-header">
+      <view class="title compact-title">{{formTitle}}</view>
+      <view class="close-btn" bindtap="closeForm">×</view>
+    </view>
+
+    <view class="form-body">
+      <view class="field">
+        <view class="label">名称</view>
+        <picker mode="selector" range="{{nameOptions}}" value="{{nameIndex}}" bindchange="onNameModeChange">
+          <view class="picker-box">{{currentNameLabel}}</view>
+        </picker>
+      </view>
+
+      <view wx:if="{{showCustomName}}" class="field">
+        <view class="label">自定义名称</view>
+        <input class="input" value="{{draft.name}}" data-field="name" bindinput="onInput" placeholder="例如：公司图像模型" />
+      </view>
+
+      <view class="field">
+        <view class="label">模型类型</view>
+        <picker mode="selector" range="{{kindLabels}}" value="{{kindIndex}}" bindchange="onKindChange">
+          <view class="picker-box channel-picker">{{currentKindLabel}}</view>
+        </picker>
+        <view class="hint">{{kindHint}}</view>
+      </view>
+
+      <view class="field">
+        <view class="label">{{endpointLabel}}</view>
+        <input class="input" value="{{draft.endpoint}}" data-field="endpoint" bindinput="onInput" placeholder="https://api.example.com" />
+      </view>
+
+      <view class="field">
+        <view class="label">API Key</view>
+        <input class="input" password value="{{draft.apiKey}}" data-field="apiKey" bindinput="onInput" placeholder="sk-..." />
+      </view>
+
+      <view class="field">
+        <view class="label">模型 ID</view>
+        <view class="selected-model">{{currentModelText}}</view>
+        <button class="button-soft fetch-button" loading="{{isFetchingModels}}" bindtap="fetchModels">扫描并导入模型</button>
+        <picker wx:if="{{modelOptions.length}}" mode="selector" range="{{modelOptions}}" range-key="name" value="{{modelIndex}}" bindchange="onModelChange">
+          <view class="picker-box model-picker">{{currentModelLabel}}</view>
+        </picker>
+        <button class="link-button" bindtap="toggleManualModelInput">没有拉取到？手动填写模型 ID</button>
+        <input wx:if="{{showManualModelInput}}" class="input manual-model-input" value="{{draft.model}}" data-field="model" bindinput="onInput" placeholder="例如：agnes-image-2.1-flash" />
+      </view>
+
+      <view class="form-actions">
+        <button class="button-soft" bindtap="testModel">检测连接</button>
+        <button class="button-primary" bindtap="save">保存模型</button>
+      </view>
+      <view wx:if="{{notice}}" class="success-text">{{notice}}</view>
+      <view wx:if="{{error}}" class="danger-text">{{error}}</view>
+    </view>
+  </view>
+
+  <!-- 已配置模型 -->
   <view class="section">
     <view class="section-heading">
       <view>
         <view class="title compact-title">已配置模型</view>
-        <view class="subtitle">同一个 API 下的模型会自动归纳到三类。</view>
+        <view class="subtitle">只保留默认接口扫描出的模型，其他 API 已清除。</view>
       </view>
     </view>
-    <view wx:for="{{models}}" wx:key="id" class="model-item">
-      <view class="model-row-head">
-        <view class="model-name">{{item.name}}</view>
-        <view class="model-kind">{{item.kindLabel}}</view>
-      </view>
-      <view class="muted">{{item.summary}}</view>
-      <view class="actions">
-        <button class="button-soft" data-id="{{item.id}}" bindtap="edit">编辑</button>
-        <button class="button-danger" data-id="{{item.id}}" bindtap="remove">删除</button>
+
+    <view wx:if="{{showEmptyModels}}" class="empty-hint">
+      <view class="empty-icon">📦</view>
+      <view class="empty-text">暂无默认模型</view>
+      <view class="empty-desc">请点击重新扫描默认接口</view>
+    </view>
+
+    <view class="model-list">
+      <view wx:for="{{models}}" wx:key="id" class="model-card" data-id="{{item.id}}" bindtap="onModelCardTap">
+        <view class="model-card-header">
+          <view class="model-card-kind">{{item.kindLabel}}</view>
+          <view wx:if="{{item.latencyMs}}" class="model-card-latency">{{item.latencyMs}}ms</view>
+        </view>
+        <view class="model-card-name">{{item.name}}</view>
+        <view class="model-card-detail">{{item.model}}</view>
+        <view class="model-card-actions" wx:if="{{item.isSelected}}">
+          <button class="button-soft" data-id="{{item.id}}" catchtap="edit">编辑</button>
+          <button class="button-danger" data-id="{{item.id}}" catchtap="remove">删除</button>
+        </view>
       </view>
     </view>
   </view>

@@ -44,15 +44,26 @@ exports.main = async function main(event = {}, context = {}) {
         throw new Error(`batchSize 不能超过 ${MAX_BATCH_SIZE}`)
       }
       const profiles = await list('modelProfiles', (item) => item.openid === openid)
-      const model = hydrateProfile(profiles.find((item) => item.id === event.input.modelId) || {
+      const isVideoMode = event.input.mode === 'txt2video' || event.input.mode === 'img2video'
+      const fallbackImage = {
         id: 'platform-agnes-image',
         name: '平台 Agnes Image',
-        endpoint: 'https://apihub.agnes-ai.com',
+        endpoint: 'https://api.gogoing.kdns.fr',
         apiPath: 'v1/images/generations',
         apiProtocol: 'openai-images',
         model: 'agnes-image-2.1-flash',
         keyMode: 'platform',
-      })
+      }
+      const fallbackVideo = {
+        id: 'platform-agnes-video',
+        name: '平台 Agnes Video',
+        endpoint: 'https://api.gogoing.kdns.fr',
+        apiPath: 'v1/video/generations',
+        apiProtocol: 'openai-video',
+        model: 'agnes-video-v2.0',
+        keyMode: 'platform',
+      }
+      const model = hydrateProfile(profiles.find((item) => item.id === event.input.modelId) || (isVideoMode ? fallbackVideo : fallbackImage))
       const task = await createGenerationTask(event.input, model, openid)
       await upsert('generationTasks', (item) => item.id === task.id, { ...whitelistInput(task), id: task.id, openid, status: task.status, assetKind: task.assetKind, assets: task.assets, createdAt: task.createdAt, keyMode: task.keyMode })
       return ok(task)
