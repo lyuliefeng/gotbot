@@ -9,6 +9,35 @@ function isProxyUnavailable(status: number): boolean {
   return status === 404 || status === 405
 }
 
+function errorMessageText(error: unknown): string {
+  if (typeof error === 'object' && error !== null && typeof (error as Record<string, unknown>).message === 'string') {
+    return String((error as Record<string, unknown>).message)
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
+function errorCause(error: unknown): unknown {
+  return error instanceof Error && 'cause' in error ? (error as Error & { cause?: unknown }).cause : undefined
+}
+
+function errorField(error: unknown, key: string): string {
+  if (typeof error !== 'object' || error === null) return ''
+  const value = (error as Record<string, unknown>)[key]
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+}
+
+function proxyNetworkError(error: unknown): Error {
+  const cause = errorCause(error)
+  const message = errorMessageText(error)
+  const causeCode = errorField(cause, 'code') || errorField(cause, 'name')
+  const causeMessage = cause ? errorMessageText(cause) : ''
+  const detail = causeCode && causeMessage
+    ? `${causeCode}: ${causeMessage}`
+    : causeMessage || causeCode
+  const suffix = detail && detail !== message ? `（${detail}）` : ''
+  return new Error(`Web 生成代理不可用: ${message}${suffix}`, { cause: error })
+}
+
 async function readGenerationError(response: Response): Promise<string> {
   try {
     const payload = await response.json()
@@ -37,7 +66,7 @@ export async function createWebGenerationTask(input: GenerationInput, model: Mod
       body: JSON.stringify(payload),
     })
   } catch (error) {
-    throw new Error(`Web 生成代理不可用: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+    throw proxyNetworkError(error)
   }
 
   if (isProxyUnavailable(response.status)) return null

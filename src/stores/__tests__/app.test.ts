@@ -417,6 +417,54 @@ describe('app store generation bridge', () => {
     }))
   })
 
+  it('records web generation proxy network causes for diagnostics', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const networkError = new TypeError('fetch failed')
+    Object.defineProperty(networkError, 'cause', {
+      value: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 127.0.0.1:3031' },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(networkError))
+    const store = useAppStore()
+    store.saveModel({
+      id: 'web-video-network-fails',
+      name: 'Web Video Network Fails',
+      provider: 'openai-compatible',
+      endpoint: 'https://apihub.agnes-ai.com',
+      apiPath: 'v1/videos',
+      apiProtocol: 'agnes-video',
+      apiKey: 'sk-web-video',
+      model: 'agnes-video-v2.0',
+      kind: 'video',
+      isPrimary: true,
+      status: 'connected',
+    })
+
+    await expect(store.generate({
+      mode: 'txt2video',
+      prompt: '网络失败要显示底层原因',
+      negativePrompt: '',
+      modelId: 'web-video-network-fails',
+      width: 1024,
+      height: 576,
+      batchSize: 1,
+      steps: 24,
+      seed: 42,
+      style: '电影',
+      modeOptions: { numFrames: 81, frameRate: 24 },
+    })).rejects.toThrow('Web 生成代理不可用: fetch failed（ECONNREFUSED: connect ECONNREFUSED 127.0.0.1:3031）')
+
+    expect(store.operationTasks[0]).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: 'Web 生成代理不可用: fetch failed（ECONNREFUSED: connect ECONNREFUSED 127.0.0.1:3031）',
+      modelId: 'web-video-network-fails',
+    }))
+    expect(store.operationTasks[0].errorDetails).toEqual(expect.objectContaining({
+      apiProtocol: 'agnes-video',
+      modelStatus: 'connected',
+      apiSecret: null,
+    }))
+  })
+
   it('rejects workspace generation when only the local preview model is selected', async () => {
     const store = useAppStore()
     mockedInvokeOptional.mockClear()

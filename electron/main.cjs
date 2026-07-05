@@ -10,6 +10,41 @@ const AGNES_LITTERBOX_UPLOAD_URL = 'https://litterbox.catbox.moe/resources/inter
 const AGNES_VIDEO_POLL_INTERVAL_MS = 5000
 const AGNES_VIDEO_POLL_TIMEOUT_MS = 600000
 
+function errorMessageText(error) {
+  if (error && typeof error === 'object' && typeof error.message === 'string') return error.message
+  return error instanceof Error ? error.message : String(error)
+}
+
+function errorCause(error) {
+  return error instanceof Error && 'cause' in error ? error.cause : undefined
+}
+
+function errorField(error, key) {
+  if (!error || typeof error !== 'object') return ''
+  const value = error[key]
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+}
+
+function upstreamNetworkError(action, error) {
+  const cause = errorCause(error)
+  const message = errorMessageText(error)
+  const causeCode = errorField(cause, 'code') || errorField(cause, 'name')
+  const causeMessage = cause ? errorMessageText(cause) : ''
+  const detail = causeCode && causeMessage
+    ? `${causeCode}: ${causeMessage}`
+    : causeMessage || causeCode
+  const suffix = detail && detail !== message ? `（${detail}）` : ''
+  return new Error(`${action}: ${message}${suffix}`)
+}
+
+async function fetchUpstream(endpoint, init, action) {
+  try {
+    return await fetch(endpoint, init)
+  } catch (error) {
+    throw upstreamNetworkError(action, error)
+  }
+}
+
 let mainWindow = null
 let store = null
 
@@ -356,7 +391,7 @@ async function listModelCatalog(profile) {
   if (!profile.endpoint?.trim()) throw new Error('请填写 API 地址')
   if (!profile.apiKey?.trim()) throw new Error('请填写 API Key')
   const endpoint = joinApiEndpoint(profile.endpoint, undefined, 'v1/models')
-  const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${profile.apiKey.trim()}` } })
+  const response = await fetchUpstream(endpoint, { headers: { Authorization: `Bearer ${profile.apiKey.trim()}` } }, `模型列表网络失败: GET ${endpoint}`)
   if (!response.ok) throw new Error(`模型列表获取失败: HTTP ${response.status} ${await response.text()}`)
   const payload = await response.json()
   return (payload.data || []).map((item) => ({ id: item.id, name: item.id, kind: inferModelKind(item.id), source: 'remote' })).sort((a, b) => a.id.localeCompare(b.id))
@@ -404,11 +439,11 @@ async function exportIconBundle(request) {
 }
 
 async function postJson(endpoint, apiKey, body) {
-  const response = await fetch(endpoint, {
+  const response = await fetchUpstream(endpoint, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, `生成请求网络失败: POST ${endpoint}`)
   const text = await response.text()
   if (!response.ok) throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
   try {
@@ -425,11 +460,11 @@ async function pollAgnesVideo(model, videoId) {
   while (Date.now() - startedAt <= AGNES_VIDEO_POLL_TIMEOUT_MS) {
     const url = new URL(pollEndpoint)
     url.searchParams.set('video_id', videoId)
-    const response = await fetch(url, {
+    const response = await fetchUpstream(url, {
       headers: {
         Authorization: `Bearer ${String(model.apiKey || '').trim()}`,
       },
-    })
+    }, `轮询 Agnes 视频网络失败: GET ${url.toString()}`)
     const text = await response.text()
     if (!response.ok) throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
     const payload = text ? JSON.parse(text) : {}
@@ -525,10 +560,10 @@ async function resolveAgnesInputImageUrl(input) {
   form.set('reqtype', 'fileupload')
   form.set('time', '1h')
   form.set('fileToUpload', new Blob([bytes], { type: mime }), `reference.${imageExtension(mime)}`)
-  const response = await fetch(AGNES_LITTERBOX_UPLOAD_URL, {
+  const response = await fetchUpstream(AGNES_LITTERBOX_UPLOAD_URL, {
     method: 'POST',
     body: form,
-  })
+  }, `上传 Agnes 参考图网络失败: POST ${AGNES_LITTERBOX_UPLOAD_URL}`)
   const text = await response.text()
   if (!response.ok || !text.trim().startsWith('http')) throw new Error(`上传 Agnes 参考图失败: HTTP ${response.status} ${text}`)
   return text.trim()

@@ -102,6 +102,41 @@ function safeGenerationUpstreamError(protocol: string, status: number, text: str
   return message ? `生成失败: 协议 ${protocol} HTTP ${status} ${message}` : `生成失败: 协议 ${protocol} HTTP ${status}`
 }
 
+function errorMessageText(error: unknown): string {
+  if (isRecord(error) && typeof error.message === 'string') return error.message
+  return error instanceof Error ? error.message : String(error)
+}
+
+function errorCause(error: unknown): unknown {
+  return error instanceof Error && 'cause' in error ? (error as Error & { cause?: unknown }).cause : undefined
+}
+
+function errorField(error: unknown, key: string): string {
+  if (!isRecord(error)) return ''
+  const value = error[key]
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+}
+
+function upstreamNetworkError(action: string, error: unknown): Error {
+  const cause = errorCause(error)
+  const message = errorMessageText(error)
+  const causeCode = errorField(cause, 'code') || errorField(cause, 'name')
+  const causeMessage = cause ? errorMessageText(cause) : ''
+  const detail = causeCode && causeMessage
+    ? `${causeCode}: ${causeMessage}`
+    : causeMessage || causeCode
+  const suffix = detail && detail !== message ? `（${detail}）` : ''
+  return new Error(`${action}: ${message}${suffix}`, { cause: error })
+}
+
+async function fetchUpstream(endpoint: string | URL, init: RequestInit, action: string): Promise<Response> {
+  try {
+    return await fetch(endpoint, init)
+  } catch (error) {
+    throw upstreamNetworkError(action, error)
+  }
+}
+
 function joinApiEndpoint(base: string, customPath: string | undefined, defaultPath: string): string {
   const suffix = (customPath?.trim() || defaultPath).replace(/^\/+/, '')
   return `${base.replace(/\/+$/, '')}/${suffix}`
@@ -129,14 +164,14 @@ function validateWebGenerationModel(model: WebModelProfile): void {
 }
 
 async function postGenerationJson(endpoint: string, apiKey: string, protocol: string, body: unknown): Promise<unknown> {
-  const upstreamResponse = await fetch(endpoint, {
+  const upstreamResponse = await fetchUpstream(endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey.trim()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-  })
+  }, `生成请求网络失败: 协议 ${protocol} POST ${endpoint}`)
   const text = await upstreamResponse.text()
   if (!upstreamResponse.ok) throw new Error(safeGenerationUpstreamError(protocol, upstreamResponse.status, text))
   try {
@@ -301,10 +336,10 @@ async function resolveAgnesInputImageUrl(input: WebGenerationInput): Promise<str
   const fileBytes = new ArrayBuffer(bytes.byteLength)
   new Uint8Array(fileBytes).set(bytes)
   form.set('fileToUpload', new Blob([fileBytes], { type: mime }), `reference.${imageExtension(mime)}`)
-  const response = await fetch(AGNES_LITTERBOX_UPLOAD_URL, {
+  const response = await fetchUpstream(AGNES_LITTERBOX_UPLOAD_URL, {
     method: 'POST',
     body: form,
-  })
+  }, `上传 Agnes 参考图网络失败: POST ${AGNES_LITTERBOX_UPLOAD_URL}`)
   const text = await response.text()
   if (!response.ok || !text.trim().startsWith('http')) throw new Error(`上传 Agnes 参考图失败: HTTP ${response.status} ${text}`)
   return text.trim()
@@ -321,7 +356,7 @@ async function imageToAssetData(image: Record<string, unknown>): Promise<{ dataU
   if (isBase64) return { dataUrl: `data:image/png;base64,${candidate}`, format: 'png' }
   if (!/^https?:\/\//.test(candidate)) throw new Error('图像模型返回了无法识别的图片格式')
 
-  const response = await fetch(candidate)
+  const response = await fetchUpstream(candidate, {}, `下载生成图片网络失败: GET ${candidate}`)
   const contentLength = Number(response.headers.get('content-length') ?? 0)
   if (contentLength > 50 * 1024 * 1024) throw new Error('生成图片响应体过大')
   if (!response.ok) throw new Error(`下载生成图片失败: HTTP ${response.status}`)
@@ -341,11 +376,11 @@ async function pollAgnesVideo(model: WebModelProfile, videoId: string): Promise<
   while (Date.now() - startedAt <= AGNES_VIDEO_POLL_TIMEOUT_MS) {
     const url = new URL(pollEndpoint)
     url.searchParams.set('video_id', videoId)
-    const response = await fetch(url, {
+    const response = await fetchUpstream(url, {
       headers: {
         Authorization: `Bearer ${model.apiKey.trim()}`,
       },
-    })
+    }, `轮询 Agnes 视频网络失败: GET ${url.toString()}`)
     const text = await response.text()
     if (!response.ok) throw new Error(safeGenerationUpstreamError('agnes-video', response.status, text))
     const payload = text ? JSON.parse(text) : {}
@@ -497,11 +532,11 @@ function apiProxyPlugin(): Plugin {
           return
         }
 
-        const upstreamResponse = await fetch(endpoint, {
+        const upstreamResponse = await fetchUpstream(endpoint, {
           headers: {
             Authorization: `Bearer ${apiKey}`,
           },
-        })
+        }, `模型列表网络失败: GET ${endpoint}`)
         const text = await upstreamResponse.text()
         if (!upstreamResponse.ok) {
           writeJson(response, 502, { error: safeUpstreamError(upstreamResponse.status, text) })
