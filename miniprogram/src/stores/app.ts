@@ -10,6 +10,7 @@ import { createId } from '@/domain/ids'
 const defaultSettings: AppSettings = {
   defaultExportFormat: 'png',
   defaultImageModelId: defaultModels[0]?.id ?? '',
+  defaultVideoModelId: defaultModels.find((model) => model.kind === 'video')?.id ?? '',
   defaultGenerationSize: 1024,
   defaultBatchSize: 1,
   defaultStyle: stylePresets[0],
@@ -17,9 +18,21 @@ const defaultSettings: AppSettings = {
   includePromptMetadata: true,
 }
 
+const builtinDefaultModelIds = new Set([
+  'platform-agnes-image',
+  'platform-gogoing-text',
+  'platform-gogoing-image',
+  'platform-agnes-video',
+  'openai-gpt-image-2',
+])
+
+function filterUserModels(modelList: ModelProfile[]): ModelProfile[] {
+  return modelList.filter((model) => model.keyMode !== 'platform' && !builtinDefaultModelIds.has(model.id))
+}
+
 export const useMiniAppStore = defineStore('mini-app', () => {
   const activeTab = ref<ActiveTab>('workspace')
-  const models = ref<ModelProfile[]>([...defaultModels])
+  const models = ref<ModelProfile[]>(filterUserModels([...defaultModels]))
   const prompts = ref<PromptItem[]>([...builtinPrompts])
   const tasks = ref<GenerationTask[]>([])
   const coverPresets = ref([...defaultCoverPresets])
@@ -39,7 +52,9 @@ export const useMiniAppStore = defineStore('mini-app', () => {
   ] as const
 
   const imageModels = computed(() => models.value.filter((model) => model.kind === 'image'))
+  const videoModels = computed(() => models.value.filter((model) => model.kind === 'video'))
   const defaultImageModel = computed(() => imageModels.value.find((model) => model.id === settings.value.defaultImageModelId) ?? imageModels.value[0])
+  const defaultVideoModel = computed(() => videoModels.value.find((model) => model.id === settings.value.defaultVideoModelId) ?? videoModels.value[0])
   const completedTasks = computed(() => tasks.value.filter((task) => task.status === 'completed'))
   const favoriteAssets = computed(() => tasks.value.flatMap((task) => task.assets.filter((asset) => asset.isFavorite)))
   const toolEntries = computed(() => toolGroups.flatMap((group) => group.tools))
@@ -64,8 +79,10 @@ export const useMiniAppStore = defineStore('mini-app', () => {
       openid.value = loginResult.openid
       const remoteModels = await callCloud<ModelProfile[]>('modelProfiles', { action: 'list' }).catch(() => [])
       if (remoteModels.length) {
-        models.value = remoteModels
-        settings.value.defaultImageModelId = remoteModels.find((model) => model.isPrimary)?.id ?? remoteModels[0]?.id ?? ''
+        const userModels = filterUserModels(remoteModels)
+        models.value = userModels
+        settings.value.defaultImageModelId = userModels.find((model) => model.kind === 'image' && model.isPrimary)?.id ?? userModels.find((model) => model.kind === 'image')?.id ?? ''
+        settings.value.defaultVideoModelId = userModels.find((model) => model.kind === 'video' && model.isPrimary)?.id ?? userModels.find((model) => model.kind === 'video')?.id ?? ''
       }
       const remoteTasks = await callCloud<GenerationTask[]>('generationTasks', { action: 'list' }).catch(() => [])
       if (remoteTasks.length) tasks.value = remoteTasks
@@ -173,7 +190,9 @@ export const useMiniAppStore = defineStore('mini-app', () => {
     statusMessage,
     openid,
     imageModels,
+    videoModels,
     defaultImageModel,
+    defaultVideoModel,
     completedTasks,
     favoriteAssets,
     toolEntries,

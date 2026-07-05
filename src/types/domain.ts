@@ -30,6 +30,8 @@ export interface ModelProfile {
   apiProtocol?: 'openai-chat' | 'anthropic-messages' | 'openai-images' | 'dashscope-wanxiang' | 'openai-image-edits' | 'multimodal-chat' | 'mgtv-storyboard' | 'openai-audio-speech' | 'agnes-image' | 'agnes-video'
   apiKey: string
   apiSecret?: string
+  headersJson?: string
+  note?: string
   model: string
   kind: 'image' | 'text' | 'tts' | 'video'
   isPrimary: boolean
@@ -63,7 +65,7 @@ export interface TextPolishInput {
   prompt: string
   modeLabel: string
   style: string
-  task?: 'polish' | 'translate-to-english' | 'video-prompt'
+  task?: 'polish' | 'translate-to-english' | 'video-prompt' | 'negative-prompt'
 }
 
 export interface TextPolishResult {

@@ -22,6 +22,7 @@ async function main() {
   const bundleResult = spawnSync(process.execPath, [path.join(__dirname, 'build-cloudfunction-bundles.cjs'), bundleOut], { encoding: 'utf8' })
   assert.equal(bundleResult.status, 0, bundleResult.stderr || bundleResult.stdout)
   assert.ok(fs.existsSync(path.join(bundleOut, 'promptPolish', 'index.js')), 'promptPolish must be included in cloud function bundles')
+  assert.ok(fs.existsSync(path.join(bundleOut, 'realtimeScan', 'index.js')), 'realtimeScan must be included in cloud function bundles')
 
   const login = await invoke('login', { action: 'bootstrap' })
   assert.equal(login.openid, context.OPENID)
@@ -53,14 +54,47 @@ async function main() {
     profiles: [
       { name: 'Smoke Text Model', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/chat/completions', apiProtocol: 'multimodal-chat', model: 'agnes-2.0-flash', kind: 'text', keyMode: 'user', apiKey: 'smoke-user-key', latencyMs: 12 },
       { name: 'Smoke Image Model', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/images/generations', apiProtocol: 'openai-images', model: 'agnes-image-2.1-flash', kind: 'image', keyMode: 'user', apiKey: 'smoke-user-key', latencyMs: 12 },
-      { name: 'Smoke Video Model', endpoint: 'https://apihub.agnes-ai.com', apiPath: 'v1/videos/generations', apiProtocol: 'openai-images', model: 'agnes-video-v2.0', kind: 'video', keyMode: 'user', apiKey: 'smoke-user-key', latencyMs: 12 },
     ],
   })
-  assert.deepEqual(importedModels.map((model) => model.kind).sort(), ['image', 'text', 'video'])
+  assert.deepEqual(importedModels.map((model) => model.kind).sort(), ['image', 'text'])
   assert.ok(importedModels.every((model) => model.apiKey === ''), 'imported models must not expose API keys')
 
   const testResult = await invoke('modelProfiles', { action: 'test', profile: savedModel })
   assert.equal(typeof testResult.message, 'string')
+
+  const realtimeSession = await invoke('realtimeScan', {
+    action: 'startSession',
+    grade: '初一',
+    subject: '数学',
+    textbookId: '人教版',
+  })
+  assert.match(realtimeSession.sessionId, /^session-/)
+  const realtimeFrame = await invoke('realtimeScan', {
+    action: 'pushFrame',
+    sessionId: realtimeSession.sessionId,
+    cloudFileId: 'cloud://smoke-frame.jpg',
+    frameHash: 'smoke-frame',
+    timestamp: Date.now(),
+    ocrText: '已知一次函数 y=2x+1，求 x=3 时 y 的值。',
+  })
+  assert.equal(realtimeFrame.status, 'recognized')
+  assert.ok(realtimeFrame.detectedQuestion.includes('一次函数'))
+  const realtimeAnswer = await invoke('realtimeScan', {
+    action: 'ask',
+    sessionId: realtimeSession.sessionId,
+    questionText: '怎么做',
+    mode: 'explain',
+  })
+  assert.ok(realtimeAnswer.answer.includes('一次函数'))
+  const mistake = await invoke('realtimeScan', {
+    action: 'saveMistake',
+    sessionId: realtimeSession.sessionId,
+    answerId: realtimeAnswer.answerId,
+    studentAnswer: 'y=7',
+  })
+  assert.match(mistake.recordId, /^mistake-/)
+  const ended = await invoke('realtimeScan', { action: 'endSession', sessionId: realtimeSession.sessionId })
+  assert.equal(ended.sessionId, realtimeSession.sessionId)
 
   if (!process.env.PLATFORM_TEXT_API_KEY && !process.env.PLATFORM_IMAGE_API_KEY) {
     const polishMod = require(path.join(cloudRoot, 'promptPolish', 'index.js'))

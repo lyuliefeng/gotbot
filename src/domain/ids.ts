@@ -6,8 +6,14 @@ export function hashString(input: string): string {
   return Math.abs(hash >>> 0).toString(36)
 }
 
+const seenPrompts = new Map<string, string>()
+
 export function stableId(prefix: string, value: string): string {
-  return `${prefix}-${hashString(value)}`
+  const existing = seenPrompts.get(value)
+  if (existing) return existing
+  const id = `${prefix}-${hashString(value)}`
+  seenPrompts.set(value, id)
+  return id
 }
 
 export function createId(prefix: string): string {

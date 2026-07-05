@@ -2,8 +2,8 @@ const https = require('node:https')
 const { pickPlatformTextKey } = require('./common/platform-keys')
 const { fail, ok } = require('./common/types')
 
-const endpoint = 'https://apihub.agnes-ai.com/v1/chat/completions'
-const model = 'agnes-2.0-flash'
+const endpoint = 'https://api.gogoing.kdns.fr/v1/chat/completions'
+const model = 'auto'
 
 function requestJson(url, payload, apiKey) {
   return new Promise((resolve, reject) => {

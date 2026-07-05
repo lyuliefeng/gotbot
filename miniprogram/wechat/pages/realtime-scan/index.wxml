@@ -1,0 +1,57 @@
+<view class="scan-page">
+  <camera
+    class="camera"
+    mode="normal"
+    device-position="back"
+    flash="auto"
+    bindinitdone="onCameraReady"
+    binderror="onCameraError"
+  />
+
+  <view class="top-panel">
+    <view class="selector-row">
+      <picker class="selector" mode="selector" range="{{grades}}" value="{{gradeIndex}}" bindchange="onGradeChange">
+        <view class="selector-value">{{selectedGrade}}</view>
+      </picker>
+      <picker class="selector" mode="selector" range="{{subjects}}" value="{{subjectIndex}}" bindchange="onSubjectChange">
+        <view class="selector-value">{{selectedSubject}}</view>
+      </picker>
+      <picker class="selector" mode="selector" range="{{textbooks}}" value="{{textbookIndex}}" bindchange="onTextbookChange">
+        <view class="selector-value">{{selectedTextbook}}</view>
+      </picker>
+    </view>
+    <view class="status-row">
+      <view class="status-pill">{{cameraReadyText}}</view>
+      <view class="status-pill">{{scanStatus}}</view>
+      <view class="status-pill">{{confidenceText}}</view>
+    </view>
+  </view>
+
+  <view class="answer-panel">
+    <view class="mode-row">
+      <button wx:for="{{modes}}" wx:key="id" class="mode-chip {{item.activeClass}}" data-mode="{{item.id}}" bindtap="selectMode">{{item.label}}</button>
+    </view>
+
+    <view class="detected-card">
+      <view class="panel-label">当前看到</view>
+      <view class="detected-text">{{detectedQuestion}}</view>
+    </view>
+
+    <view class="answer-card">
+      <view class="panel-label">AI 回答</view>
+      <view class="answer-text">{{answer}}</view>
+      <view class="citation-text">{{citationsText}}</view>
+    </view>
+
+    <textarea class="question-input" value="{{questionText}}" bindinput="onQuestionInput" placeholder="可以追问：这题为什么这么做？我写的答案对吗？" />
+
+    <view class="action-row">
+      <button class="action-button primary" loading="{{starting}}" disabled="{{starting}}" bindtap="startSession">{{startButtonText}}</button>
+      <button class="action-button" bindtap="togglePause">{{pauseButtonText}}</button>
+      <button class="action-button primary" loading="{{asking}}" disabled="{{asking}}" bindtap="askWithLatestFrame">立即回答</button>
+      <button class="action-button" loading="{{saving}}" disabled="{{saving}}" bindtap="saveMistake">保存错题</button>
+    </view>
+
+    <view wx:if="{{error}}" class="error-text">{{error}}</view>
+  </view>
+</view>

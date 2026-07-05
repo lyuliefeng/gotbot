@@ -1,0 +1,31 @@
+<view class="page">
+  <view class="learning-hero">
+    <view class="eyebrow">AI Study</view>
+    <view class="hero-title">问课本</view>
+    <view class="hero-subtitle">围绕教材学习、扫题讲解、练习批改，回答优先绑定课本依据。</view>
+    <view class="hero-actions">
+      <button class="button-primary hero-button" bindtap="openScan">视频答题</button>
+      <button class="button-soft hero-button" bindtap="openMaterials">选教材</button>
+    </view>
+  </view>
+
+  <view class="stats-row">
+    <view wx:for="{{stats}}" wx:key="id" class="stat-card">
+      <view class="stat-value">{{item.value}}</view>
+      <view class="stat-label">{{item.label}}</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="title compact-title">今日任务</view>
+    <view class="task-list">
+      <view wx:for="{{cards}}" wx:key="id" class="task-card">
+        <view>
+          <view class="task-title">{{item.title}}</view>
+          <view class="muted">{{item.desc}}</view>
+        </view>
+        <view class="task-action">{{item.action}}</view>
+      </view>
+    </view>
+  </view>
+</view>

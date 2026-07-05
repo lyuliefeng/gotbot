@@ -12,6 +12,7 @@ import {
 } from '@/data/catalog'
 import { browserStorage } from '@/services/storage'
 import { invokeOptional, isElectronRuntime } from '@/services/desktop'
+import { createWebGenerationTask } from '@/services/webGeneration'
 import {
   buildIcoFile,
   bytesToDataUrl,
@@ -41,6 +42,16 @@ import { createId } from '@/domain/ids'
 
 const STORAGE_KEY = 'samimage.v3.state'
 const fallbackGifDataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh+QQAFAAAACwAAAAAAQABAAACAkQBACH5BAAUAAAALAAAAAABAAEAAAICTAEAOw=='
+const builtinDefaultModelIds = new Set([
+  'text-polish',
+  'agnes-image',
+  'agnes-video',
+  'openai-gpt-image-2',
+  'platform-agnes-image',
+  'platform-gogoing-text',
+  'platform-gogoing-image',
+  'platform-agnes-video',
+])
 
 interface PersistedState {
   models: ModelProfile[]
@@ -49,6 +60,13 @@ interface PersistedState {
   coverPresets: CoverPreset[]
   settings: AppSettings
   promptSync?: PromptSyncState
+}
+
+export interface ModelRouteGroup {
+  key: string
+  kind: ModelProfile['kind']
+  model: string
+  profiles: ModelProfile[]
 }
 
 interface PromptSyncState {
@@ -70,13 +88,184 @@ interface PromptSyncSource {
   candidates: string[]
 }
 
+type CatalogModelKind = ModelCatalogItem['kind']
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function modelCatalogEndpoint(baseUrl: string): string {
+  const url = new URL(baseUrl.trim())
+  const segments = url.pathname.split('/').filter(Boolean)
+  const v1Index = segments.lastIndexOf('v1')
+  const prefix = v1Index >= 0 ? segments.slice(0, v1Index) : segments
+  url.pathname = `/${[...prefix, 'v1', 'models'].join('/')}`
+  url.search = ''
+  return url.toString()
+}
+
+function inferCatalogModelKind(modelId: string): CatalogModelKind {
+  const id = modelId.toLowerCase()
+  if (['video', 'txt2video', 'img2video', 'wan', 'kling', 'veo'].some((marker) => id.includes(marker))) {
+    return 'video'
+  }
+  if ([
+    'tts',
+    'speech',
+    'audio',
+    'voice',
+    'eleven',
+    'kokoro',
+    'bark',
+    'tortoise',
+    'cosyvoice',
+    'melo',
+    'f5-tts',
+    'xtts',
+    'silero',
+    'edge-tts',
+    'azure-speech',
+  ].some((marker) => id.includes(marker))) {
+    return 'tts'
+  }
+  if ([
+    'image',
+    'dall-e',
+    'dalle',
+    'flux',
+    'stable-diffusion',
+    'sdxl',
+    'ideogram',
+    'recraft',
+    'midjourney',
+    'kolors',
+  ].some((marker) => id.includes(marker))) {
+    return 'image'
+  }
+  if (['gpt', 'chat', 'claude', 'deepseek', 'qwen', 'llama', 'gemini', 'moonshot', 'glm', 'mistral', 'yi-', 'agnes'].some((marker) => id.includes(marker))) {
+    return 'text'
+  }
+  return 'unknown'
+}
+
+function catalogPayloadItems(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload
+  if (!isRecord(payload)) return []
+  if (Array.isArray(payload.data)) return payload.data
+  if (Array.isArray(payload.models)) return payload.models
+  if (Array.isArray(payload.items)) return payload.items
+  return []
+}
+
+function catalogModelId(item: unknown): string {
+  if (typeof item === 'string') return item.trim()
+  if (!isRecord(item)) return ''
+  const value = item.id ?? item.name ?? item.model ?? item.model_name
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeModelCatalog(payload: unknown): ModelCatalogItem[] {
+  return catalogPayloadItems(payload)
+    .map(catalogModelId)
+    .filter((id, index, items) => id.length > 0 && items.indexOf(id) === index)
+    .map((id) => ({
+      id,
+      name: id,
+      kind: inferCatalogModelKind(id),
+      source: 'remote' as const,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id))
+}
+
+async function fetchModelCatalogViaProxy(profile: ModelProfile): Promise<ModelCatalogItem[] | null> {
+  if (typeof window === 'undefined') return null
+
+  let response: Response
+  try {
+    response = await fetch('/api/model-catalog', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        endpoint: profile.endpoint.trim(),
+        apiKey: profile.apiKey.trim(),
+      }),
+    })
+  } catch {
+    return null
+  }
+
+  if (response.status === 404 || response.status === 405) return null
+  if (!response.ok) {
+    let message = `模型列表获取失败: HTTP ${response.status}`
+    try {
+      const payload = await response.json()
+      if (isRecord(payload) && typeof payload.error === 'string') message = payload.error
+    } catch {
+      message = `模型列表获取失败: HTTP ${response.status}`
+    }
+    throw new Error(message)
+  }
+
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch (error) {
+    throw new Error(`解析模型列表失败: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+
+  return normalizeModelCatalog(payload)
+}
+
+async function fetchModelCatalogOverHttp(profile: ModelProfile): Promise<ModelCatalogItem[]> {
+  if (profile.provider !== 'openai-compatible') throw new Error('仅支持 OpenAI Compatible 模型列表接口')
+  if (!profile.endpoint.trim()) throw new Error('请填写 API 地址')
+  if (!profile.apiKey.trim()) throw new Error('请填写 API Key')
+  if (typeof fetch !== 'function') throw new Error('当前运行环境不支持浏览器直连模型接口')
+
+  const proxyResult = await fetchModelCatalogViaProxy(profile)
+  if (proxyResult) return proxyResult
+
+  let endpoint: string
+  try {
+    endpoint = modelCatalogEndpoint(profile.endpoint)
+  } catch (error) {
+    throw new Error(`API 地址格式不正确: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+
+  let response: Response
+  try {
+    response = await fetch(endpoint, {
+      headers: {
+        Authorization: `Bearer ${profile.apiKey.trim()}`,
+      },
+    })
+  } catch {
+    throw new Error('浏览器直连模型接口失败，可能被 CORS 或网络策略拦截；请确认上游允许网页请求，或在桌面应用中检测')
+  }
+
+  if (!response.ok) {
+    throw new Error(`模型列表获取失败: HTTP ${response.status}`)
+  }
+
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch (error) {
+    throw new Error(`解析模型列表失败: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+
+  return normalizeModelCatalog(payload)
+}
+
 const defaultState: PersistedState = {
   models: defaultModels,
   prompts: defaultPrompts,
   tasks: [],
   coverPresets: defaultCoverPresets,
   settings: {
-    defaultOutputDir: 'D:\\SamImage\\Exports',
+    defaultOutputDir: typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent) ? 'D:\\gotbot\\exports' : '~/gotbot/exports',
     defaultExportFormat: 'svg',
     defaultImageModelId: '',
     defaultGenerationSize: 1024,
@@ -132,7 +321,7 @@ function cloneDefaultCoverPresets(): CoverPreset[] {
 }
 
 function normalizeDefaultExportFormat(value: unknown): ExportFormat {
-  return value === 'png' || value === 'jpg' || value === 'webp' || value === 'svg' || value === 'mp4' ? value : 'svg'
+  return value === 'png' || value === 'jpg' || value === 'webp' || value === 'svg' || value === 'mp4' || value === 'gif' || value === 'ico' ? value : 'svg'
 }
 
 function normalizeInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -153,15 +342,15 @@ function normalizeDefaultImageModelId(value: unknown, modelList: ModelProfile[])
 
 function defaultModelApiPath(kind: ModelProfile['kind']): string {
   if (kind === 'text') return 'v1/chat/completions'
-  if (kind === 'tts') return 'v1/audio/speech'
   if (kind === 'video') return 'v1/videos'
+  if (kind === 'tts') return 'v1/audio/speech'
   return 'v1/images/generations'
 }
 
 function defaultModelApiProtocol(kind: ModelProfile['kind']): NonNullable<ModelProfile['apiProtocol']> {
   if (kind === 'text') return 'openai-chat'
-  if (kind === 'tts') return 'openai-audio-speech'
   if (kind === 'video') return 'agnes-video'
+  if (kind === 'tts') return 'openai-audio-speech'
   return 'openai-images'
 }
 
@@ -225,8 +414,40 @@ function normalizeModelProfile(model: ModelProfile): ModelProfile {
   }
 }
 
+function modelRouteKey(model: ModelProfile): string {
+  const modelId = model.model.trim().toLowerCase()
+  return modelId ? `${model.kind}:${modelId}` : `${model.kind}:profile:${model.id}`
+}
+
+function normalizedModelEndpoint(endpoint: string): string {
+  return endpoint.trim().replace(/\/+$/g, '').toLowerCase()
+}
+
+function routeProfileRank(model: ModelProfile, selectedId?: string): number {
+  if (selectedId && model.id === selectedId) return 0
+  if (model.isPrimary) return 1
+  if (model.status === 'connected') return 2
+  if (model.status === 'untested') return 3
+  return 4
+}
+
+function sortRouteProfiles(profiles: ModelProfile[], selectedId?: string): ModelProfile[] {
+  return profiles.slice().sort((left, right) => {
+    const rankDiff = routeProfileRank(left, selectedId) - routeProfileRank(right, selectedId)
+    if (rankDiff !== 0) return rankDiff
+    return left.name.localeCompare(right.name)
+  })
+}
+
+function textPolishSuccessMessage(task: TextPolishInput['task'], modelName: string): string {
+  if (task === 'translate-to-english') return `已使用 ${modelName} 翻译为英文提示词`
+  if (task === 'video-prompt') return `已使用 ${modelName} 润色视频提示词`
+  if (task === 'negative-prompt') return `已使用 ${modelName} 润色反向提示词`
+  return `已使用 ${modelName} 润色提示词`
+}
+
 function normalizeModelList(modelList: ModelProfile[]): ModelProfile[] {
-  const visibleModels = modelList.filter((model) => model.provider !== 'local-preview' && model.id !== 'local-preview')
+  const visibleModels = modelList.filter((model) => model.provider !== 'local-preview' && model.id !== 'local-preview' && !builtinDefaultModelIds.has(model.id))
   const mergedModels = visibleModels.length ? visibleModels : defaultModels
   const existingIds = new Set(mergedModels.map((model) => model.id))
   return [
@@ -241,6 +462,11 @@ function normalizePromptList(promptList?: PromptItem[]): PromptItem[] {
     return ![item.category, item.subCategory, ...(item.tags ?? [])].some((value) => isBlockedPromptCategory(value))
   })
   return mergePromptItems(defaultPrompts, customPrompts)
+}
+
+function normalizeDefaultOutputDir(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return defaultState.settings.defaultOutputDir
+  return value.replace(/samimage/gi, 'gotbot')
 }
 
 function compactBrowserState(state: PersistedState): PersistedState {
@@ -337,6 +563,7 @@ export const useAppStore = defineStore('app', () => {
   const initial = compactBrowserState(browserStorage.read<PersistedState>(STORAGE_KEY, cloneDefault()))
   const initialModels = normalizeModelList(initial.models.length ? initial.models : defaultModels)
   const initialSettings = { ...defaultState.settings, ...initial.settings }
+  initialSettings.defaultOutputDir = normalizeDefaultOutputDir(initialSettings.defaultOutputDir)
   initialSettings.defaultExportFormat = normalizeDefaultExportFormat(initialSettings.defaultExportFormat)
   initialSettings.defaultImageModelId = normalizeDefaultImageModelId(initialSettings.defaultImageModelId, initialModels)
   initialSettings.defaultGenerationSize = normalizeInteger(initialSettings.defaultGenerationSize, defaultState.settings.defaultGenerationSize, 128, 4096)
@@ -349,6 +576,7 @@ export const useAppStore = defineStore('app', () => {
   const promptSync = ref<PromptSyncState>(initial.promptSync ?? {})
   const settings = ref<AppSettings>(initialSettings)
   const toast = ref<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
+  let toastTimer: ReturnType<typeof setTimeout> | undefined
   const activePrompt = ref('')
   const activeMode = ref<GenerationMode>('txt2img')
 
@@ -360,6 +588,35 @@ export const useAppStore = defineStore('app', () => {
   const primaryTextModel = computed(() => textModels.value.find((model) => model.isPrimary) ?? textModels.value[0])
   const primaryVideoModel = computed(() => videoModels.value.find((model) => model.isPrimary) ?? videoModels.value[0])
   const defaultImageModel = computed(() => imageModels.value.find((model) => model.id === settings.value.defaultImageModelId) ?? primaryImageModel.value)
+  const textAutoRouteProfiles = computed(() => textRouteCandidates())
+  const modelRouteGroups = computed<ModelRouteGroup[]>(() => {
+    const groups = new Map<string, ModelRouteGroup>()
+    for (const model of models.value) {
+      if (model.provider === 'local-preview' || !model.model.trim()) continue
+      const key = modelRouteKey(model)
+      const existing = groups.get(key)
+      if (existing) {
+        existing.profiles.push(model)
+      } else {
+        groups.set(key, {
+          key,
+          kind: model.kind,
+          model: model.model.trim(),
+          profiles: [model],
+        })
+      }
+    }
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        profiles: sortRouteProfiles(group.profiles),
+      }))
+      .sort((left, right) => {
+        const kindDiff = left.kind.localeCompare(right.kind)
+        if (kindDiff !== 0) return kindDiff
+        return left.model.localeCompare(right.model)
+      })
+  })
   const enabledCoverPresets = computed(() => coverPresets.value.filter((preset) => preset.enabled))
   const recentTasks = computed(() => tasks.value.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8))
   const operationTasks = computed(() => tasks.value.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
@@ -392,6 +649,7 @@ export const useAppStore = defineStore('app', () => {
   function applyPersistedState(next: PersistedState): void {
     const nextModels = normalizeModelList(next.models?.length ? next.models : defaultModels)
     const nextSettings = { ...defaultState.settings, ...next.settings }
+    nextSettings.defaultOutputDir = normalizeDefaultOutputDir(nextSettings.defaultOutputDir)
     nextSettings.defaultExportFormat = normalizeDefaultExportFormat(nextSettings.defaultExportFormat)
     nextSettings.defaultImageModelId = normalizeDefaultImageModelId(nextSettings.defaultImageModelId, nextModels)
     nextSettings.defaultGenerationSize = normalizeInteger(nextSettings.defaultGenerationSize, defaultState.settings.defaultGenerationSize, 128, 4096)
@@ -431,9 +689,11 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function notify(message: string, type: 'success' | 'error' | 'info' = 'success'): void {
+    if (toastTimer) clearTimeout(toastTimer)
     toast.value = { message, type }
-    window.setTimeout(() => {
-      if (toast.value?.message === message) toast.value = null
+    toastTimer = setTimeout(() => {
+      toast.value = null
+      toastTimer = undefined
     }, 2400)
   }
 
@@ -480,28 +740,39 @@ export const useAppStore = defineStore('app', () => {
   async function generate(input: GenerationInput): Promise<GenerationTask> {
     const isVideoMode = input.mode === 'txt2video' || input.mode === 'img2video'
     const selectedModel = (isVideoMode ? videoModels.value : imageModels.value).find((model) => model.id === input.modelId)
-    const validationMessage = generationValidationMessage(selectedModel, isVideoMode ? 'video' : 'image')
+    const routeCandidates = selectedModel ? generationRouteCandidates(selectedModel, isVideoMode ? 'video' : 'image') : []
+    const validationMessage = routeCandidates.length ? null : generationValidationMessage(selectedModel, isVideoMode ? 'video' : 'image')
     if (validationMessage) {
       const failedTask = createFailedGenerationTask(input, new Error(validationMessage), selectedModel)
       recordGenerationTask(failedTask)
       notify(validationMessage, 'error')
       throw new Error(validationMessage)
     }
-    if (!isElectronRuntime()) {
-      const message = isVideoMode ? '请在桌面版使用真实视频模型生成视频' : '请在桌面版使用真实图像模型生成图片'
-      const failedTask = createFailedGenerationTask(input, new Error(message), selectedModel)
-      recordGenerationTask(failedTask)
-      notify(message, 'error')
-      throw new Error(message)
-    }
-
-    let task: GenerationTask
+    let task: GenerationTask | null = null
+    let lastError: unknown = null
+    let lastAttemptedModel: ModelProfile | undefined = selectedModel
     try {
-      const commandResult = await invokeOptional<GenerationTask>('create_generation_task', { input, model: selectedModel })
-      if (!commandResult) throw new Error('Electron 生成命令不可用')
-      task = commandResult
+      for (const routeModel of routeCandidates) {
+        lastAttemptedModel = routeModel
+        const routedInput = routeModel.id === input.modelId ? input : { ...input, modelId: routeModel.id }
+        try {
+          if (isElectronRuntime()) {
+            const commandResult = await invokeOptional<GenerationTask>('create_generation_task', { input: routedInput, model: routeModel })
+            if (!commandResult) throw new Error('Electron 生成命令不可用')
+            task = commandResult
+          } else {
+            const webResult = await createWebGenerationTask(routedInput, routeModel)
+            if (!webResult) throw new Error('Web 生成代理未启用，请部署 /api/generation 或使用桌面版')
+            task = webResult
+          }
+          break
+        } catch (error) {
+          lastError = error
+        }
+      }
+      if (!task) throw lastError ?? new Error(isElectronRuntime() ? 'Electron 生成命令不可用' : 'Web 生成代理未启用，请部署 /api/generation 或使用桌面版')
     } catch (error) {
-      const failedTask = createFailedGenerationTask(input, error, selectedModel)
+      const failedTask = createFailedGenerationTask(input, error, lastAttemptedModel)
       recordGenerationTask(failedTask)
       notify(failedTask.error ?? '生成失败', 'error')
       throw new Error(failedTask.error ?? '生成失败', { cause: error })
@@ -531,13 +802,60 @@ export const useAppStore = defineStore('app', () => {
     return null
   }
 
+  function generationRouteCandidates(selectedModel: ModelProfile, kind: 'image' | 'video'): ModelProfile[] {
+    const selectedKey = modelRouteKey(selectedModel)
+    return sortRouteProfiles(
+      models.value.filter((model) => (
+        model.kind === kind
+        && modelRouteKey(model) === selectedKey
+        && generationValidationMessage(model, kind) === null
+      )),
+      selectedModel.id,
+    )
+  }
+
+  function textModelValidationMessage(model: ModelProfile | undefined): string | null {
+    if (!model || model.provider === 'local-preview') return '请先配置可用的文本模型'
+    if (!model.endpoint.trim()) return '请填写文本模型 API 地址'
+    if (!model.apiKey.trim()) return '请填写文本模型 API Key'
+    if (!model.model.trim()) return '请填写文本模型 ID'
+    return null
+  }
+
+  function textRouteCandidates(selectedId?: string): ModelProfile[] {
+    const selectedTextModel = textModels.value.find((model) => model.id === selectedId) ?? primaryTextModel.value
+    return sortRouteProfiles(
+      textModels.value.filter((model) => textModelValidationMessage(model) === null),
+      selectedTextModel?.id,
+    )
+  }
+
+  async function invokeTextPolishAutoRoute(input: TextPolishInput, modelId?: string): Promise<TextPolishResult | null> {
+    if (!isElectronRuntime()) return null
+    const routeCandidates = textRouteCandidates(modelId)
+    if (!routeCandidates.length) return null
+
+    let lastError: unknown = null
+    for (const routeModel of routeCandidates) {
+      try {
+        const result = await invokeOptional<TextPolishResult>('polish_prompt', { input, model: routeModel })
+        if (!result) throw new Error('Electron 文本生成命令不可用')
+        return result
+      } catch (error) {
+        lastError = error
+      }
+    }
+    throw new Error(errorMessage(lastError, '文本模型 auto 路由失败'))
+  }
+
   async function polishPrompt(input: TextPolishInput, modelId?: string): Promise<TextPolishResult> {
     const selectedTextModel = textModels.value.find((model) => model.id === modelId) ?? primaryTextModel.value
     if (isElectronRuntime()) {
-      const result = await invokeOptional<TextPolishResult>('polish_prompt', { input, model: selectedTextModel })
-      if (!result) throw new Error('Electron 润色命令不可用')
-      notify(`已使用 ${result.modelName} 润色提示词`)
-      return result
+      const routedResult = await invokeTextPolishAutoRoute(input, modelId)
+      if (routedResult) {
+        notify(textPolishSuccessMessage(input.task, routedResult.modelName))
+        return routedResult
+      }
     }
 
     const modelName = selectedTextModel?.name ?? '本地文本润色'
@@ -552,7 +870,7 @@ export const useAppStore = defineStore('app', () => {
         ].join(', '),
         modelName,
       }
-      notify(`已使用 ${result.modelName} 翻译为英文提示词`)
+      notify(textPolishSuccessMessage(input.task, result.modelName))
       return result
     }
     if (input.task === 'video-prompt') {
@@ -566,7 +884,25 @@ export const useAppStore = defineStore('app', () => {
         ].join('，'),
         modelName,
       }
-      notify(`已使用 ${result.modelName} 润色视频提示词`)
+      notify(textPolishSuccessMessage(input.task, result.modelName))
+      return result
+    }
+    if (input.task === 'negative-prompt') {
+      const base = input.prompt.trim() || '低清晰度、变形、文字水印、错误构图'
+      const result = {
+        prompt: Array.from(new Set([
+          ...base.split(/[，,、]/).map((item) => item.trim()).filter(Boolean),
+          '低清晰度',
+          '结构变形',
+          '多余肢体',
+          '文字水印',
+          '噪点',
+          '过曝',
+          '构图混乱',
+        ])).join('、'),
+        modelName,
+      }
+      notify(textPolishSuccessMessage(input.task, result.modelName))
       return result
     }
     const result = {
@@ -579,40 +915,33 @@ export const useAppStore = defineStore('app', () => {
       ].join('，'),
       modelName,
     }
-    notify(`已使用 ${result.modelName} 润色提示词`)
+    notify(textPolishSuccessMessage(input.task, result.modelName))
     return result
-  }
-
-  function configuredTextModel(modelId?: string): ModelProfile | undefined {
-    const selected = textModels.value.find((model) => model.id === modelId) ?? primaryTextModel.value
-    if (!selected || selected.provider === 'local-preview') return undefined
-    if (!selected.endpoint.trim() || !selected.apiKey.trim() || !selected.model.trim()) return undefined
-    return selected
   }
 
   async function translatePromptToEnglish(input: TextPolishInput, modelId?: string): Promise<TextPolishResult> {
     if (!containsChineseText(input.prompt)) return { prompt: input.prompt, modelName: '无需翻译' }
-    const selectedTextModel = configuredTextModel(modelId)
-    if (!selectedTextModel) {
-      throw new Error('检测到中文提示词，请先配置可用的文本模型用于自动翻译英文提示词')
-    }
     const request: TextPolishInput = { ...input, task: 'translate-to-english' }
     if (isElectronRuntime()) {
-      const result = await invokeOptional<TextPolishResult>('polish_prompt', { input: request, model: selectedTextModel })
-      if (!result) throw new Error('Electron 翻译命令不可用')
-      notify(`已使用 ${result.modelName} 翻译为英文提示词`)
-      return result
+      const routedResult = await invokeTextPolishAutoRoute(request, modelId)
+      if (routedResult) {
+        notify(textPolishSuccessMessage(request.task, routedResult.modelName))
+        return routedResult
+      }
+      throw new Error('检测到中文提示词，请先配置可用的文本模型用于自动翻译英文提示词')
     }
-    const result = await polishPrompt(request, selectedTextModel.id)
-    notify(`已使用 ${result.modelName} 翻译为英文提示词`)
-    return result
+    if (!textRouteCandidates(modelId).length) {
+      throw new Error('检测到中文提示词，请先配置可用的文本模型用于自动翻译英文提示词')
+    }
+    return polishPrompt(request, modelId)
   }
 
   async function fetchModelCatalog(profile: ModelProfile): Promise<ModelCatalogItem[]> {
-    if (!isElectronRuntime()) return []
-    const result = await invokeOptional<ModelCatalogItem[]>('list_model_catalog', { profile })
-    if (!result) throw new Error('Electron 模型列表命令不可用')
-    return result
+    if (isElectronRuntime()) {
+      const result = await invokeOptional<ModelCatalogItem[]>('list_model_catalog', { profile })
+      if (result) return result
+    }
+    return fetchModelCatalogOverHttp(profile)
   }
 
   function importPrompts(content: string, filename: string): number {
@@ -696,21 +1025,60 @@ export const useAppStore = defineStore('app', () => {
     notify(`已删除提示词：${target.title}`)
   }
 
-  function saveModel(profile: ModelProfile): void {
-    const next = normalizeModelProfile(profile.id ? profile : { ...profile, id: createId('model') })
-    if (next.provider === 'local-preview' || next.id === 'local-preview') {
+  function saveModels(profiles: ModelProfile[], successMessage = '模型配置已保存'): void {
+    const nextProfiles = profiles.map((profile) => normalizeModelProfile(profile.id ? profile : { ...profile, id: createId('model') }))
+    if (!nextProfiles.length) {
+      notify('没有可保存的模型配置', 'error')
+      return
+    }
+    if (nextProfiles.some((profile) => profile.provider === 'local-preview' || profile.id === 'local-preview')) {
       notify('本地预览模型已移除，请配置真实图像模型', 'error')
       return
     }
-    if (next.isPrimary) {
-      models.value = models.value.map((model) => (model.kind === next.kind ? { ...model, isPrimary: false } : model))
+
+    let nextModels = models.value.slice()
+    for (const next of nextProfiles) {
+      if (next.isPrimary) {
+        nextModels = nextModels.map((model) => (model.kind === next.kind ? { ...model, isPrimary: false } : model))
+      }
+      const index = nextModels.findIndex((model) => model.id === next.id)
+      if (index >= 0) nextModels[index] = next
+      else nextModels.push(next)
     }
-    const index = models.value.findIndex((model) => model.id === next.id)
-    if (index >= 0) models.value[index] = next
-    else models.value.push(next)
+    models.value = nextModels
     repairDefaultImageModel()
     persist()
-    notify('模型配置已保存')
+    notify(successMessage)
+  }
+
+  function replaceModelsForEndpoint(endpoint: string, profiles: ModelProfile[], successMessage = '模型配置已保存'): void {
+    const nextProfiles = profiles.map((profile) => normalizeModelProfile(profile.id ? profile : { ...profile, id: createId('model') }))
+    if (nextProfiles.some((profile) => profile.provider === 'local-preview' || profile.id === 'local-preview')) {
+      notify('本地预览模型已移除，请配置真实图像模型', 'error')
+      return
+    }
+
+    const normalizedEndpoint = normalizedModelEndpoint(endpoint || nextProfiles[0]?.endpoint || '')
+    const nextIds = new Set(nextProfiles.map((profile) => profile.id))
+    let nextModels = models.value.filter((model) => (
+      normalizedModelEndpoint(model.endpoint) !== normalizedEndpoint || nextIds.has(model.id)
+    ))
+    for (const next of nextProfiles) {
+      if (next.isPrimary) {
+        nextModels = nextModels.map((model) => (model.kind === next.kind ? { ...model, isPrimary: false } : model))
+      }
+      const index = nextModels.findIndex((model) => model.id === next.id)
+      if (index >= 0) nextModels[index] = next
+      else nextModels.push(next)
+    }
+    models.value = nextModels
+    repairDefaultImageModel()
+    persist()
+    notify(successMessage)
+  }
+
+  function saveModel(profile: ModelProfile): void {
+    saveModels([profile])
   }
 
   function setPrimaryImageModel(id: string): void {
@@ -773,6 +1141,7 @@ export const useAppStore = defineStore('app', () => {
     if (model.kind === 'image' && model.apiProtocol === 'mgtv-storyboard' && !model.apiSecret?.trim()) return '请填写 MGTV 图像模型 Secret Key'
     if (model.kind === 'text' && !model.model.trim()) return '请填写文本模型 ID'
     if (model.kind === 'image' && !model.model.trim()) return '请填写图像模型 ID'
+    if (model.kind === 'video' && !model.model.trim()) return '请填写视频模型 ID'
     return null
   }
 
@@ -788,10 +1157,19 @@ export const useAppStore = defineStore('app', () => {
       return
     }
     if (!isElectronRuntime()) {
-      model.status = 'untested'
+      const result = await fetchModelCatalogOverHttp(model)
+        .then((items) => ({
+          ok: items.length > 0,
+          message: items.length ? `模型列表接口可用，已获取 ${items.length} 个模型` : '模型列表为空，请检查 BASE_URL 或 API Key',
+        }))
+        .catch((error: unknown) => ({
+          ok: false,
+          message: error instanceof Error ? error.message : '模型连接检测失败',
+        }))
+      model.status = result.ok ? 'connected' : 'failed'
       model.lastCheckedAt = new Date().toISOString()
       persist()
-      notify('浏览器预览模式不能直连模型 API，请在桌面版检测连接', 'info')
+      notify(result.message, result.ok ? 'success' : 'error')
       return
     }
     const result = await invokeOptional<{ ok: boolean; message: string }>('test_model_profile', { profile: model }).catch((error: unknown) => ({
@@ -806,13 +1184,13 @@ export const useAppStore = defineStore('app', () => {
 
   function removeModel(id: string): void {
     models.value = models.value.filter((model) => model.id !== id)
-    if (!imageModels.value.some((model) => model.isPrimary)) {
-      const first = imageModels.value[0]
-      if (first) first.isPrimary = true
+    if (!imageModels.value.some((model) => model.isPrimary) && imageModels.value[0]) {
+      const firstId = imageModels.value[0].id
+      models.value = models.value.map((m) => m.id === firstId ? { ...m, isPrimary: true } : m)
     }
-    if (!videoModels.value.some((model) => model.isPrimary)) {
-      const first = videoModels.value[0]
-      if (first) first.isPrimary = true
+    if (!videoModels.value.some((model) => model.isPrimary) && videoModels.value[0]) {
+      const firstId = videoModels.value[0].id
+      models.value = models.value.map((m) => m.id === firstId ? { ...m, isPrimary: true } : m)
     }
     repairDefaultImageModel()
     persist()
@@ -994,7 +1372,7 @@ export const useAppStore = defineStore('app', () => {
     if (metadataJson) {
       const metadataUrl = URL.createObjectURL(new Blob([metadataJson], { type: 'application/json' }))
       triggerBrowserDownload(metadataUrl, `${exportTitle}.metadata.json`)
-      URL.revokeObjectURL(metadataUrl)
+      setTimeout(() => URL.revokeObjectURL(metadataUrl), 10000)
     }
     notify(metadataJson ? '已导出图片和提示词元数据到浏览器下载目录' : '已导出到浏览器下载目录')
   }
@@ -1056,7 +1434,7 @@ export const useAppStore = defineStore('app', () => {
     const blob = new Blob([zipBytes.buffer as ArrayBuffer], { type: 'application/zip' })
     const url = URL.createObjectURL(blob)
     triggerBrowserDownload(url, `${baseName}.zip`)
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
     notify(`已导出 ${selectedSizes.length} 个 ICO 图标到浏览器下载目录`)
   }
 
@@ -1144,6 +1522,8 @@ export const useAppStore = defineStore('app', () => {
     primaryTextModel,
     primaryVideoModel,
     defaultImageModel,
+    textAutoRouteProfiles,
+    modelRouteGroups,
     enabledCoverPresets,
     recentTasks,
     operationTasks,
@@ -1166,6 +1546,8 @@ export const useAppStore = defineStore('app', () => {
     syncPromptSource,
     usePrompt,
     removePrompt,
+    saveModels,
+    replaceModelsForEndpoint,
     saveModel,
     setPrimaryImageModel,
     setPrimaryTextModel,

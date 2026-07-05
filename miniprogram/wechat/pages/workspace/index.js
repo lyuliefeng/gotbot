@@ -1,8 +1,11 @@
 const { tools, prompts, modeLabels } = require('../../utils/catalog')
-const { callFunction } = require('../../utils/cloud')
-const { loadState, saveState } = require('../../utils/state')
+const { callFunction, uploadCloudFile } = require('../../utils/cloud')
+const { loadState, modelsForKind, saveState } = require('../../utils/state')
 const { validateGenerationInput } = require('../../utils/validators')
 const { resolveAssetUrls } = require('../../utils/assets')
+
+const AUTO_MODEL_ID = '__auto__'
+const MANUAL_MODEL_PREFIX = '手动匹配'
 
 function decorateTools(activeId) {
   return tools.map((tool) => ({
@@ -23,7 +26,11 @@ Page({
     models: [],
     toolTabs: decorateTools(tools[0].id),
     modelIndex: 0,
-    selectedModelName: '暂无模型，请先去设置',
+    manualModelEnabled: false,
+    modelMatchModeLabel: '自动匹配',
+    modelMatchModeHint: '系统按当前创作类型自动匹配可用模型',
+    selectedModelName: '自动匹配',
+    selectedModelKindLabel: '自动匹配',
     prompt: '',
     negativePrompt: tools[0].negativeSeed || '低清晰度、变形、文字水印、错误构图',
     width: tools[0].width,
@@ -41,13 +48,14 @@ Page({
     composerPanelClass: '',
     composerTitle: tools[0].title,
     composerSubtitle: '图片通道 · 自动匹配图像模型',
-    resolutionOptions: ['1024 x 1024', '1080 x 1440', '1280 x 720', '768 x 768'],
+    resolutionOptions: ['1024 x 1024', '4096 x 4096', '1080 x 1440', '1280 x 720', '768 x 768'],
     resolutionIndex: 0,
     loading: false,
     polishingPrompt: false,
     polishingNegativePrompt: false,
     generateButtonText: '开始生成',
     polishPromptText: 'AI 提示词润色',
+    promptPlaceholder: tools[0].mode === 'gif' ? '描述动作、运动轨迹和节奏' : '描述主体、风格、光线和场景',
     polishNegativePromptText: 'AI 反向提示词润色',
     error: '',
     notice: '',
@@ -76,30 +84,64 @@ Page({
 
   kindLabel(kind) {
     if (kind === 'text') return '文字/多模态'
-    return kind === 'video' ? '生视频' : '生图'
+    if (kind === 'video') return '视频'
+    return '生图'
   },
 
   emptyModelText(kind) {
     if (kind === 'text') return '暂无文字/多模态模型，请先去设置'
-    return kind === 'video' ? '暂无视频模型，请先去设置' : '暂无图像模型，请先去设置'
+    if (kind === 'video') return '暂无视频模型，请先去设置'
+    return '暂无图像模型，请先去设置'
   },
 
   defaultModelKey(kind) {
-    return kind === 'video' ? 'defaultVideoModelId' : 'defaultModelId'
+    if (kind === 'video') return 'defaultVideoModelId'
+    return 'defaultModelId'
+  },
+
+  autoModelOption(kind) {
+    return {
+      id: AUTO_MODEL_ID,
+      name: `自动匹配（${this.kindLabel(kind)}）`,
+      kind,
+      kindLabel: '自动匹配',
+      model: '',
+      isAuto: true,
+    }
+  },
+
+  decorateModelOption(model) {
+    const kind = model.kind || 'image'
+    return {
+      ...model,
+      kindLabel: this.kindLabel(kind),
+      name: `${MANUAL_MODEL_PREFIX} · ${this.kindLabel(kind)} · ${model.name || model.model}`,
+      isManual: true,
+    }
+  },
+
+  isHiddenManualModel(model) {
+    return Boolean(model && (model.keyMode === 'platform' || String(model.id || '').startsWith('platform-')))
   },
 
   applyModelsForTool(tool, allModels, state) {
     const modelKind = tool.modelKind || 'image'
-    const models = (allModels || []).filter((model) => (model.kind || 'image') === modelKind)
+    const thirdPartyModels = modelsForKind(allModels, modelKind, { includePlatform: true })
+      .filter((model) => !this.isHiddenManualModel(model))
+      .map((model) => this.decorateModelOption(model))
     const defaultId = state[this.defaultModelKey(modelKind)]
-    const foundIndex = models.findIndex((model) => model.id === defaultId)
+    const foundIndex = thirdPartyModels.findIndex((model) => model.id === defaultId)
     const modelIndex = foundIndex >= 0 ? foundIndex : 0
-    const selectedModel = models[modelIndex]
+    const selectedModel = this.autoModelOption(modelKind)
     this.setData({
       allModels: allModels || [],
-      models,
+      models: thirdPartyModels,
       modelIndex,
-      selectedModelName: selectedModel ? selectedModel.name : this.emptyModelText(modelKind),
+      manualModelEnabled: false,
+      modelMatchModeLabel: '自动匹配',
+      modelMatchModeHint: `系统按${this.kindLabel(modelKind)}类型自动匹配可用模型`,
+      selectedModelName: selectedModel.name,
+      selectedModelKindLabel: selectedModel.kindLabel,
       composerSubtitle: `${this.kindLabel(modelKind)}通道 · 自动匹配${this.kindLabel(modelKind)}模型`,
     })
   },
@@ -119,10 +161,15 @@ Page({
       width: tool.width,
       height: tool.height,
       resolutionIndex,
-      batchSize: tool.modelKind === 'video' ? 1 : this.data.batchSize,
+      batchSize: this.data.batchSize,
       referenceBackdropVisible: Boolean(tool.referenceRequired && this.data.referenceImage),
       referenceImage: tool.referenceRequired ? this.data.referenceImage : '',
       error: '',
+      promptPlaceholder: tool.modelKind === 'video'
+        ? '描述主体、动作、场景、景别和镜头运动'
+        : tool.mode === 'gif'
+          ? '描述动作、景别、运动轨迹和节奏'
+          : '描述主体、景别、风格、光线和场景',
     }, () => this.openComposer())
     this.applyModelsForTool(tool, state.models || this.data.allModels || [], state)
   },
@@ -153,9 +200,41 @@ Page({
     const model = this.data.models[index]
     const state = loadState()
     const modelKind = this.data.activeTool.modelKind || 'image'
-    state[this.defaultModelKey(modelKind)] = model && model.id
+    state[this.defaultModelKey(modelKind)] = model ? model.id : ''
     saveState(state)
-    this.setData({ modelIndex: index, selectedModelName: model ? model.name : this.emptyModelText(modelKind) })
+    this.setData({
+      modelIndex: index,
+      manualModelEnabled: true,
+      modelMatchModeLabel: '手动匹配',
+      modelMatchModeHint: `手动使用已匹配的${this.kindLabel(modelKind)}模型`,
+      selectedModelName: model ? model.name : this.emptyModelText(modelKind),
+      selectedModelKindLabel: model ? model.kindLabel : this.kindLabel(modelKind),
+    })
+  },
+
+  onModelMatchModeChange(event) {
+    const manualModelEnabled = Boolean(event.detail.value)
+    const modelKind = this.data.activeTool.modelKind || 'image'
+    if (!manualModelEnabled) {
+      const autoModel = this.autoModelOption(modelKind)
+      this.setData({
+        manualModelEnabled: false,
+        modelMatchModeLabel: '自动匹配',
+        modelMatchModeHint: `系统按${this.kindLabel(modelKind)}类型自动匹配可用模型`,
+        selectedModelName: autoModel.name,
+        selectedModelKindLabel: autoModel.kindLabel,
+      })
+      return
+    }
+    const selected = this.data.models[this.data.modelIndex] || this.data.models[0]
+    this.setData({
+      manualModelEnabled: true,
+      modelIndex: selected ? this.data.models.findIndex((model) => model.id === selected.id) : 0,
+      modelMatchModeLabel: '手动匹配',
+      modelMatchModeHint: selected ? `手动使用已匹配的${this.kindLabel(modelKind)}模型` : this.emptyModelText(modelKind),
+      selectedModelName: selected ? selected.name : this.emptyModelText(modelKind),
+      selectedModelKindLabel: selected ? selected.kindLabel : this.kindLabel(modelKind),
+    })
   },
 
   onInput(event) {
@@ -227,22 +306,33 @@ Page({
 
   chooseReference() {
     wx.chooseMedia({ count: 1, mediaType: ['image'] })
-      .then((res) => {
+      .then(async (res) => {
         const file = res.tempFiles && res.tempFiles[0]
-        if (file) this.setData({ referenceImage: file.tempFilePath, referenceBackdropVisible: true })
+        if (!file) return
+        this.setData({ referenceImage: file.tempFilePath, referenceBackdropVisible: true, notice: '参考图上传中…' })
+        try {
+          const extension = String(file.tempFilePath || '').split('.').pop() || 'jpg'
+          const cloudFileId = await uploadCloudFile(`references/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`, file.tempFilePath)
+          this.setData({ referenceImage: cloudFileId, notice: '参考图已上传' })
+        } catch (error) {
+          this.setData({ notice: '参考图已选择，上传云存储失败时仅本地预览可用', error: error.message || '' })
+        }
       })
       .catch(() => undefined)
   },
 
   buildInput() {
-    const model = this.data.models[this.data.modelIndex] || this.data.models[0]
-    const assetKind = this.data.activeTool.modelKind === 'video' ? 'video' : 'image'
+    const model = this.data.manualModelEnabled && this.data.modelIndex >= 0 ? this.data.models[this.data.modelIndex] : null
+    const modelKind = this.data.activeTool.modelKind || 'image'
+    const state = loadState()
+    const assetKind = modelKind === 'video' ? 'video' : 'image'
+    const modelId = model ? model.id : state[this.defaultModelKey(modelKind)] || ''
     return {
       mode: this.data.activeTool.mode,
       assetKind,
       prompt: this.data.prompt || this.data.activeTool.promptSeed,
       negativePrompt: this.data.negativePrompt,
-      modelId: model ? model.id : '',
+      modelId,
       width: Number(this.data.width),
       height: Number(this.data.height),
       batchSize: Number(this.data.batchSize),
@@ -261,18 +351,45 @@ Page({
       this.setData({ loading: true, generateButtonText: '生成中', error: '', notice: '' })
       const task = await callFunction('generationTasks', { action: 'create', input })
       if (!task || !task.assets) throw new Error('云函数未返回生成结果')
-      const assetKind = input.assetKind || (this.data.activeTool.modelKind === 'video' ? 'video' : 'image')
-      const currentAssets = (await resolveAssetUrls(task.assets || [])).map((asset) => ({ ...asset, assetKind: asset.assetKind || assetKind }))
+      const assetKind = input.assetKind || 'image'
+      const currentAssets = (await resolveAssetUrls(task.assets || [])).map((asset) => {
+        const resolvedKind = asset.assetKind || assetKind
+        return { ...asset, assetKind: resolvedKind, isVideo: resolvedKind === 'video' }
+      })
       const storedTask = { ...task, assetKind: task.assetKind || assetKind, assets: currentAssets }
       const state = loadState()
       state.tasks = [storedTask].concat((state.tasks || []).filter((item) => item.id !== task.id))
       saveState(state)
-      this.setData({ composerOpen: false, currentTask: storedTask, currentAssets, isVideoResult: assetKind === 'video', notice: `已生成 ${currentAssets.length} 个结果` })
+      this.setData({ composerOpen: false, currentTask: storedTask, currentAssets, isVideoResult: assetKind === 'video' })
+      wx.showToast({ title: `已生成 ${currentAssets.length} 个结果`, icon: 'success' })
+      this.autoSaveAssets(currentAssets)
     } catch (error) {
       this.setData({ error: error.message || '生成失败' })
     } finally {
       this.setData({ loading: false, generateButtonText: '开始生成' })
     }
+  },
+
+  autoSaveAssets(assets) {
+    let saved = 0
+    let failed = 0
+    const total = assets.length
+    assets.forEach((asset) => {
+      const url = asset.assetUrl
+      if (!url) { failed++; return }
+      wx.downloadFile({ url })
+        .then((res) => {
+          if (asset.assetKind === 'video') return wx.saveVideoToPhotosAlbum({ filePath: res.tempFilePath })
+          return wx.saveImageToPhotosAlbum({ filePath: res.tempFilePath })
+        })
+        .then(() => { saved++ })
+        .catch(() => { failed++ })
+        .then(() => {
+          if (saved + failed === total && saved > 0) {
+            wx.showToast({ title: `已存入相册 ${saved} 张`, icon: 'success' })
+          }
+        })
+    })
   },
 
   previewAsset(event) {
@@ -284,8 +401,12 @@ Page({
   saveAsset(event) {
     const url = event.currentTarget.dataset.url
     if (!url) return
+    const isVideo = this.data.isVideoResult
     wx.downloadFile({ url })
-      .then((res) => wx.saveImageToPhotosAlbum({ filePath: res.tempFilePath }))
+      .then((res) => {
+        if (isVideo) return wx.saveVideoToPhotosAlbum({ filePath: res.tempFilePath })
+        return wx.saveImageToPhotosAlbum({ filePath: res.tempFilePath })
+      })
       .then(() => wx.showToast({ title: '已保存', icon: 'success' }))
       .catch((err) => {
         const msg = String(err.errMsg || '').includes('auth deny') ? '请在设置中允许访问相册' : '保存失败'

@@ -138,11 +138,14 @@ pub fn validate_generation_input(input: &GenerationInput) -> Result<(), Generati
         return Err(GenerationError::Validation("请输入正向提示词".into()));
     }
     if input.model_id.trim().is_empty() {
-        return Err(GenerationError::Validation(if is_video_mode(&input.mode) {
-            "请选择视频模型".into()
-        } else {
-            "请选择图像模型".into()
-        }));
+        return Err(GenerationError::Validation(
+            if is_video_mode(&input.mode) {
+                "请选择视频模型"
+            } else {
+                "请选择图像模型"
+            }
+            .into(),
+        ));
     }
     if input.mode == GenerationMode::Img2Video
         && input
@@ -537,16 +540,20 @@ async fn create_openai_image_edits_generation(
     completed_task(input, id, created_at, assets)
 }
 
-pub(crate) fn image_http_client() -> Result<reqwest::Client, GenerationError> {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(20))
-        .timeout(Duration::from_secs(IMAGE_REQUEST_TIMEOUT_SECS))
-        .pool_max_idle_per_host(2)
-        .user_agent("SamImage/3.0")
-        .build()
-        .map_err(|error| {
-            GenerationError::Validation(format!("创建图像模型 HTTP 客户端失败: {error}"))
-        })
+use std::sync::OnceLock;
+
+static IMAGE_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+pub(crate) fn image_http_client() -> Result<&'static reqwest::Client, GenerationError> {
+    Ok(IMAGE_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(IMAGE_REQUEST_TIMEOUT_SECS))
+            .pool_max_idle_per_host(2)
+            .user_agent("SamImage/3.0")
+            .build()
+            .expect("failed to build image HTTP client")
+    }))
 }
 
 async fn send_remote_request(
@@ -1868,14 +1875,14 @@ pub fn export_asset_data_url(
     title: &str,
     format: &str,
 ) -> Result<PathBuf, GenerationError> {
-    let (_, payload) = data_url
-        .split_once(',')
-        .ok_or_else(|| GenerationError::Validation("导出内容必须是 data URL".into()))?;
     if !data_url.starts_with("data:") {
         return Err(GenerationError::Validation(
             "导出内容必须是 data URL".into(),
         ));
     }
+    let (_, payload) = data_url
+        .split_once(',')
+        .ok_or_else(|| GenerationError::Validation("导出内容必须是 data URL".into()))?;
 
     let bytes = STANDARD
         .decode(payload)
@@ -1909,6 +1916,10 @@ pub fn export_asset_metadata_json(
 }
 
 pub fn sanitize_export_name(value: &str) -> String {
+    if value.contains("..") {
+        return "samimage-export".into();
+    }
+
     let mut output = String::new();
     let mut last_was_separator = false;
 

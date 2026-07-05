@@ -12,6 +12,10 @@ const memory = {
   modelProfiles: [],
   generationTasks: [],
   promptPacks: [],
+  realtime_sessions: [],
+  frame_snapshots: [],
+  scan_answers: [],
+  student_records: [],
 }
 
 function hasCloudDb() {

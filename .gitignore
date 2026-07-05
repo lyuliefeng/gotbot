@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-ssr/
 release/
+release-electron/
 target/
 .cargo-target/
 .cargo-target-test/
@@ -21,6 +22,9 @@ docs/
 
 # Node
 *.local
+.env
+.env.*
+!.env.example
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
@@ -32,6 +36,11 @@ lerna-debug.log*
 
 # Logs
 logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # OS
 .DS_Store

@@ -116,7 +116,7 @@ const stats = computed(() => ({
   favorites: store.favoriteAssets.length,
 }))
 
-watch([search, filter, sortMode], () => {
+watch([search, filter, sortMode, favoritesOnly], () => {
   visibleCount.value = 8
 })
 

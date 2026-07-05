@@ -132,7 +132,7 @@ function writeGifFile(input: GifFileInput): Uint8Array {
     // LZW
     const minCodeSize = Math.max(2, gctSizeField + 1) // GIF 规范要求 LZW min code size >= 2
     writer.writeByte(minCodeSize)
-    const lzwBytes = lzwCompress(frame.indices, minCodeSize, palettePow2)
+    const lzwBytes = lzwCompress(frame.indices, minCodeSize, 1 << 12)
     writeSubBlocks(writer, lzwBytes)
     writer.writeByte(0) // block terminator
   }
@@ -419,12 +419,12 @@ function bilinearSample(
   const yRatio = sh / dh
   for (let y = 0; y < dh; y += 1) {
     const srcY = sy + y * yRatio
-    const y0 = Math.floor(srcY)
+    const y0 = Math.max(0, Math.floor(srcY))
     const y1 = Math.min(src.height - 1, y0 + 1)
     const wy = srcY - y0
     for (let x = 0; x < dw; x += 1) {
       const srcX = sx + x * xRatio
-      const x0 = Math.floor(srcX)
+      const x0 = Math.max(0, Math.floor(srcX))
       const x1 = Math.min(src.width - 1, x0 + 1)
       const wx = srcX - x0
       const i00 = (y0 * src.width + x0) * 4

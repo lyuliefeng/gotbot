@@ -4,16 +4,15 @@ const { createHash, randomUUID } = require('node:crypto')
 const { decryptText, encryptText } = require('./common/crypto')
 const { list, remove, upsert } = require('./common/db')
 const { testProfile } = require('./common/generation-service')
-const { pickPlatformImageKey, pickPlatformTextKey } = require('./common/platform-keys')
 const { fail, ok } = require('./common/types')
 
-const DEFAULT_PROVIDER = {
-  name: '默认 GoGoing API',
-  endpoint: 'https://api.gogoing.kdns.fr',
-  apiPath: 'v1/images/generations',
-  apiProtocol: 'openai-images',
-  keyMode: 'platform',
-}
+const BUILTIN_DEFAULT_PROFILE_IDS = new Set([
+  'platform-agnes-image',
+  'platform-gogoing-text',
+  'platform-gogoing-image',
+  'platform-agnes-video',
+  'openai-gpt-image-2',
+])
 
 function resolveOpenid(context, event) {
   const openid = context.OPENID
@@ -24,6 +23,10 @@ function resolveOpenid(context, event) {
 function sanitizeProfile(profile) {
   const { encryptedApiKey, apiKey, ...rest } = profile
   return { ...rest, apiKey: '' }
+}
+
+function isBuiltinDefaultProfile(profile) {
+  return Boolean(profile && (profile.keyMode === 'platform' || BUILTIN_DEFAULT_PROFILE_IDS.has(profile.id)))
 }
 
 const PROFILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
@@ -113,7 +116,7 @@ function requestJson(url, apiKey) {
 function hydrate(profile) {
   return {
     ...profile,
-    apiKey: profile.keyMode === 'user' ? decryptText(profile.encryptedApiKey || '') || profile.apiKey || '' : pickPlatformImageKey(),
+    apiKey: decryptText(profile.encryptedApiKey || '') || profile.apiKey || '',
   }
 }
 
@@ -123,48 +126,6 @@ function stableProfileId(profile) {
     .digest('hex')
     .slice(0, 20)
   return `model-${hash}`
-}
-
-function platformKeyForKind(kind) {
-  return kind === 'text' ? pickPlatformTextKey() : pickPlatformImageKey()
-}
-
-function apiPathForKind(kind) {
-  if (kind === 'text') return 'v1/chat/completions'
-  if (kind === 'video') return 'v1/video/generations'
-  return 'v1/images/generations'
-}
-
-function protocolForKind(kind) {
-  return kind === 'text' ? 'multimodal-chat' : 'openai-images'
-}
-
-async function saveDiscoveredProfiles({ openid, models, provider, apiKey, keyMode }) {
-  const saved = []
-  for (const model of models) {
-    const kind = model.kind || 'text'
-    const profile = {
-      name: `${provider.name} · ${model.name || model.id}`,
-      endpoint: provider.endpoint,
-      apiPath: apiPathForKind(kind),
-      apiProtocol: protocolForKind(kind),
-      model: model.id,
-      kind,
-      keyMode,
-      latencyMs: model.latencyMs,
-      status: 'untested',
-    }
-    const item = await upsert('modelProfiles', (existing) => existing.id === stableProfileId(profile) && existing.openid === openid, {
-      ...profile,
-      id: stableProfileId(profile),
-      openid,
-      encryptedApiKey: keyMode === 'user' ? encryptText(apiKey || '') : '',
-      apiKey: undefined,
-      updatedAt: new Date().toISOString(),
-    })
-    saved.push(sanitizeProfile(item))
-  }
-  return saved
 }
 
 exports.main = async function main(event = {}, context = {}) {
@@ -184,7 +145,7 @@ exports.main = async function main(event = {}, context = {}) {
 
     if (event.action === 'list') {
       const profiles = await list('modelProfiles', (item) => item.openid === openid)
-      return ok(profiles.map(sanitizeProfile))
+      return ok(profiles.filter((profile) => !isBuiltinDefaultProfile(profile)).map(sanitizeProfile))
     }
 
     if (event.action === 'save') {
@@ -195,7 +156,8 @@ exports.main = async function main(event = {}, context = {}) {
         ...sanitized,
         id,
         openid,
-        encryptedApiKey: profile.keyMode === 'user' ? encryptText(profile.apiKey || '') : '',
+        keyMode: 'user',
+        encryptedApiKey: encryptText(profile.apiKey || ''),
         apiKey: undefined,
         updatedAt: new Date().toISOString(),
       })
@@ -221,22 +183,6 @@ exports.main = async function main(event = {}, context = {}) {
         saved.push(sanitizeProfile(item))
       }
       return ok(saved)
-    }
-
-    if (event.action === 'resetDefaultProvider') {
-      const apiKey = pickPlatformImageKey() || pickPlatformTextKey()
-      if (!apiKey) throw new Error('平台默认 API Key 未配置')
-      const discovered = await requestJson(modelsUrl(DEFAULT_PROVIDER.endpoint), apiKey)
-      if (!discovered.models.length) throw new Error('默认接口没有发现可用模型')
-      await remove('modelProfiles', (item) => item.openid === openid)
-      const saved = await saveDiscoveredProfiles({
-        openid,
-        models: discovered.models,
-        provider: DEFAULT_PROVIDER,
-        apiKey: '',
-        keyMode: 'platform',
-      })
-      return ok({ models: saved, latencyMs: discovered.latencyMs })
     }
 
     if (event.action === 'delete') {

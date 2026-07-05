@@ -10,7 +10,7 @@ use crate::api_endpoint::join_api_endpoint;
 use crate::error::AppError;
 use crate::generation::{
     GenerationInput, GenerationTask, RemoteImageModel, create_generation_with_model,
-    export_asset_data_url, export_asset_metadata_json, image_http_client,
+    export_asset_data_url, export_asset_metadata_json, image_http_client, sanitize_export_name,
 };
 use crate::state::AppState;
 use crate::text::{TextPolishInput, TextPolishModel, TextPolishResult, polish_prompt_with_model};
@@ -180,6 +180,7 @@ pub async fn export_generated_asset(
     if request.output_dir.trim().is_empty() {
         return Err(AppError::Validation("请设置导出目录".into()));
     }
+    validate_output_dir(&request.output_dir)?;
 
     let path = export_asset_data_url(
         &request.data_url,
@@ -225,12 +226,23 @@ pub async fn export_icon_bundle(request: ExportIconBundleRequest) -> Result<Stri
     if request.entries.is_empty() {
         return Err(AppError::Validation("没有可导出的图标文件".into()));
     }
+    validate_output_dir(&request.output_dir)?;
 
     let output_dir = std::path::Path::new(request.output_dir.trim());
     std::fs::create_dir_all(output_dir)?;
 
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     for entry in &request.entries {
+        if entry.name.contains("..")
+            || entry.name.contains('/')
+            || entry.name.contains('\\')
+            || entry.name.starts_with('.')
+        {
+            return Err(AppError::Validation(format!(
+                "无效的图标文件名: {}",
+                entry.name
+            )));
+        }
         let data = STANDARD
             .decode(entry.data_url_from_base64())
             .map_err(|error| AppError::Validation(format!("解码图标数据失败: {error}")))?;
@@ -238,7 +250,8 @@ pub async fn export_icon_bundle(request: ExportIconBundleRequest) -> Result<Stri
     }
 
     let zip_bytes = build_zip_stored(&files);
-    let zip_name = format!("{}.zip", request.bundle_name.trim());
+    let safe_name = sanitize_export_name(request.bundle_name.trim());
+    let zip_name = format!("{safe_name}.zip");
     let zip_path = output_dir.join(&zip_name);
     std::fs::write(&zip_path, &zip_bytes)?;
 
@@ -254,11 +267,44 @@ impl IconBundleEntry {
     }
 }
 
+fn validate_output_dir(output_dir: &str) -> Result<(), AppError> {
+    let path = std::path::Path::new(output_dir);
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                return Err(AppError::Validation("导出目录不能包含上级路径引用".into()));
+            }
+            std::path::Component::RootDir => {
+                return Err(AppError::Validation(
+                    "导出目录不能使用绝对路径根目录".into(),
+                ));
+            }
+            std::path::Component::Prefix(p) => {
+                return Err(AppError::Validation(format!(
+                    "导出目录不能使用驱动器前缀: {}",
+                    p.as_os_str().to_string_lossy()
+                )));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn build_zip_stored(files: &[(String, Vec<u8>)]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut local_offsets = Vec::new();
 
+    if files.len() > u16::MAX as usize {
+        // ZIP 格式限制单个中央目录最多 65535 个条目
+        return out;
+    }
+
     for (name, data) in files {
+        if out.len() > u32::MAX as usize {
+            // ZIP 格式限制偏移量为 u32，超出会产生损坏的归档
+            break;
+        }
         local_offsets.push(out.len());
         let name_bytes = name.as_bytes();
         let crc = crc32(data);

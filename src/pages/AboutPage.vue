@@ -8,7 +8,7 @@ const openFaq = ref(0)
 
 const faqs = [
   ['道听徒说需要联网吗？', '浏览、配置和资产管理默认在本地完成。只有在调用你配置的模型 API 生成图像或视频时才需要网络连接。'],
-  ['支持哪些模型？', '支持 OpenAI 兼容协议的图像模型、Agnes 图像/视频模型，以及用于 AI 润色的文本模型。可以配置多个模型并设置主模型。'],
+  ['支持哪些模型？', '支持 OpenAI 兼容协议的图像模型、Agnes 图像/视频模型、GPT Image 2，以及用于 AI 润色的文本模型。可以配置多个模型并设置主模型。'],
   ['提示词如何导入？', '在设置的 Prompts 市场中同步 glidea/banana-prompt-quicker、EvoLinkAI/awesome-gpt-image-2-API-and-Prompts、freestylefly/awesome-gpt-image-2 等开源仓库，或导入自定义 JSON。支持数组、{prompts:[]}、{items:[]} 等常见结构，并按 source+sourceId 或 content hash 去重。感谢这些开源项目提供的提示词整理与分享。'],
   ['如何添加自定义封面预设？', '在工具库的封面预设区域点击「自定义」，或在设置的系统设置里点击「新增预设」，输入名称、宽度、高度后即可在列表中看到并使用。自定义预设保存在本地，支持随时删除。'],
   ['图片保存在哪里？', '浏览器预览会保存到下载目录；桌面版会使用设置里的默认输出目录。资产库可查看所有生成结果、提示词和参数，并支持重新导出。'],
@@ -22,7 +22,7 @@ const workspaceShortcuts = [
   { action: '复制结果图', keys: 'Ctrl + Shift + C' },
   { action: '打开提示词库', keys: 'Ctrl + L' },
   { action: '上传参考图', keys: 'Ctrl + U' },
-  { action: '导出结果', keys: 'Ctrl + S' },
+  { action: '导出结果', keys: 'Ctrl + Shift + E' },
 ]
 
 const navigationShortcuts = [
@@ -30,8 +30,9 @@ const navigationShortcuts = [
   { action: '工作台', keys: 'Ctrl + 2' },
   { action: '工具库', keys: 'Ctrl + 3' },
   { action: '资产库', keys: 'Ctrl + 4' },
-  { action: '设置', keys: 'Ctrl + 5' },
-  { action: '关于帮助', keys: 'Ctrl + 6' },
+  { action: '操作记录', keys: 'Ctrl + 5' },
+  { action: '设置', keys: 'Ctrl + 6' },
+  { action: '关于帮助', keys: 'Ctrl + 7' },
 ]
 
 </script>

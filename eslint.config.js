@@ -9,6 +9,7 @@ export default [
       '.codegraph/**',
       '.cargo-target-test/**',
       '.tmp/**',
+      'artifacts/**',
       'dist/**',
       'miniprogram/**',
       'node_modules/**',

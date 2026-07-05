@@ -43,13 +43,14 @@ Page({
   },
 
   toggleFilter() {
+    const nextFavorite = !this.data.onlyFavorite
     this.setData({
-      activeLibrary: 'favorite',
-      onlyFavorite: true,
-      imageTabClass: '',
+      activeLibrary: nextFavorite ? 'favorite' : 'image',
+      onlyFavorite: nextFavorite,
+      imageTabClass: nextFavorite ? '' : 'active',
       videoTabClass: '',
-      favoriteTabClass: 'active',
-      favoriteFilterClass: 'active',
+      favoriteTabClass: nextFavorite ? 'active' : '',
+      favoriteFilterClass: nextFavorite ? 'active' : '',
     }, () => this.applyTasks(this.data.tasks))
   },
 
@@ -78,6 +79,7 @@ Page({
         taskCreatedAt: task.createdAt,
         assetKind: asset.assetKind || task.assetKind || (task.mode === 'txt2video' || task.mode === 'img2video' ? 'video' : 'image'),
         assetUrl: asset.assetUrl || asset.remoteUrl || asset.dataUrl || '',
+        format: asset.format || 'svg',
         favoriteText: asset.isFavorite ? '取消收藏' : '收藏',
       })),
     }))
@@ -127,7 +129,20 @@ Page({
 
   async deleteTask(event) {
     const id = event.currentTarget.dataset.id
-    await callFunction('generationTasks', { action: 'deleteTask', id }).catch(() => true)
+    try {
+      const confirmed = await new Promise((resolve) => {
+        wx.showModal({
+          title: '确认删除',
+          content: '删除后不可恢复，是否继续？',
+          success: (res) => resolve(res.confirm),
+        })
+      })
+      if (!confirmed) return
+      await callFunction('generationTasks', { action: 'deleteTask', id })
+    } catch (error) {
+      this.setData({ error: error.message || '删除失败' })
+      return
+    }
     const state = loadState()
     state.tasks = (state.tasks || []).filter((task) => task.id !== id)
     saveState(state)

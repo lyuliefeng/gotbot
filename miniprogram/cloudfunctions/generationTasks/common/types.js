@@ -5,6 +5,8 @@ const protocolDefaults = {
   'multimodal-chat': 'v1/chat/completions',
   'mgtv-storyboard': 'openapi/v1/storyboard/generateByPromptV2',
   'agnes-image': 'v1/images/generations',
+  'openai-video': 'v1/video/generations',
+  'agnes-video': 'v1/videos',
 }
 
 function ok(data) {

@@ -33,7 +33,8 @@ Page({
       const state = loadState()
       const existing = state.prompts || prompts
       const ids = new Set(existing.map((item) => item.id))
-      state.prompts = existing.concat(items.filter((item) => !ids.has(item.id)))
+      const prompts = new Set(existing.map((item) => item.prompt))
+      state.prompts = existing.concat(items.filter((item) => !ids.has(item.id) && !prompts.has(item.prompt)))
       saveState(state)
       this.setData({ prompts: state.prompts, notice: `已同步 ${items.length} 条提示词`, error: '' })
     } catch (error) {

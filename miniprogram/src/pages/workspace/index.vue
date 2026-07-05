@@ -9,7 +9,10 @@ const currentTask = ref<GenerationTask | null>(null)
 const activeToolId = ref<string>(toolGroups[0]?.tools[0]?.id ?? '')
 
 const activeTool = computed<ToolEntry>(() => store.toolEntries.find((tool) => tool.id === activeToolId.value) ?? store.toolEntries[0])
-const selectedModel = computed(() => store.defaultImageModel)
+const isVideoTool = computed(() => activeTool.value.mode === 'txt2video' || activeTool.value.mode === 'img2video')
+const availableModels = computed(() => (isVideoTool.value ? store.videoModels : store.imageModels))
+const selectedModel = computed(() => (isVideoTool.value ? store.defaultVideoModel : store.defaultImageModel))
+const selectedModelId = computed(() => (isVideoTool.value ? store.settings.defaultVideoModelId ?? '' : store.settings.defaultImageModelId))
 
 const form = reactive({
   prompt: '',
@@ -63,6 +66,12 @@ async function generate(): Promise<void> {
 function usePrompt(prompt: string): void {
   form.prompt = prompt
 }
+
+function selectModel(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value
+  if (isVideoTool.value) store.settings.defaultVideoModelId = value
+  else store.settings.defaultImageModelId = value
+}
 </script>
 
 <template>
@@ -93,8 +102,8 @@ function usePrompt(prompt: string): void {
       <h3>参数</h3>
       <div class="grid-fields">
         <label>模型
-          <select v-model="store.settings.defaultImageModelId">
-            <option v-for="model in store.imageModels" :key="model.id" :value="model.id">{{ model.name }} · {{ model.keyMode === 'platform' ? '平台 Key' : '用户 Key' }}</option>
+          <select :value="selectedModelId" @change="selectModel">
+            <option v-for="model in availableModels" :key="model.id" :value="model.id">{{ model.name }} · {{ model.keyMode === 'platform' ? '平台 Key' : '用户 Key' }}</option>
           </select>
         </label>
         <label>风格
@@ -135,7 +144,8 @@ function usePrompt(prompt: string): void {
       <h3>本次结果</h3>
       <div class="asset-grid">
         <article v-for="asset in resultAssets" :key="asset.id" class="asset-card">
-          <img v-if="asset.dataUrl || asset.remoteUrl" class="asset-preview" :src="asset.dataUrl || asset.remoteUrl" :alt="asset.title" />
+          <video v-if="asset.mediaType === 'video' || asset.format === 'mp4'" class="asset-preview" :src="asset.remoteUrl || asset.dataUrl" controls />
+          <img v-else-if="asset.dataUrl || asset.remoteUrl" class="asset-preview" :src="asset.dataUrl || asset.remoteUrl" :alt="asset.title" />
           <p>{{ asset.title }}</p>
           <div class="action-row">
             <button class="soft-button" type="button" @click="store.toggleFavorite(asset.taskId, asset.id)">{{ asset.isFavorite ? '取消收藏' : '收藏' }}</button>

@@ -10,12 +10,12 @@ const draft = reactive<ModelProfile>({
   id: '',
   name: '我的图像模型',
   provider: 'openai-compatible',
-  endpoint: 'https://api.openai.com',
+  endpoint: '',
   apiPath: 'v1/images/generations',
   apiProtocol: 'openai-images',
   apiKey: '',
   apiSecret: '',
-  model: 'gpt-image-1',
+  model: '',
   kind: 'image',
   isPrimary: false,
   status: 'untested',
@@ -36,7 +36,7 @@ async function save(): Promise<void> {
   <section class="page">
     <div class="section">
       <h2>模型配置</h2>
-      <p class="muted">用户 Key 会交给云函数加密保存；平台 Key 只从云函数环境变量读取，不会下发到小程序。</p>
+      <p class="muted">请添加自己的第三方 API，上游地址、模型 ID 和 Key 都不会预填。</p>
       <div class="field">
         <label>名称<input v-model="draft.name" /></label>
       </div>
@@ -44,7 +44,6 @@ async function save(): Promise<void> {
         <label>Key 模式
           <select v-model="draft.keyMode">
             <option value="user">用户自带 Key</option>
-            <option value="platform">平台统一 Key</option>
           </select>
         </label>
         <label>协议
@@ -55,6 +54,8 @@ async function save(): Promise<void> {
             <option value="multimodal-chat">多模态 Chat</option>
             <option value="mgtv-storyboard">MGTV 分镜</option>
             <option value="agnes-image">Agnes Image</option>
+            <option value="agnes-video">Agnes Video</option>
+            <option value="openai-video">OpenAI Video</option>
           </select>
         </label>
         <label>Base URL<input v-model="draft.endpoint" /></label>
@@ -74,7 +75,7 @@ async function save(): Promise<void> {
       <h3>已配置模型</h3>
       <article v-for="model in store.models" :key="model.id" class="tool-card">
         <h3>{{ model.name }}</h3>
-        <p class="muted">{{ model.apiProtocol }} · {{ model.keyMode === 'platform' ? '平台 Key' : '用户 Key' }}</p>
+        <p class="muted">{{ model.apiProtocol }} · 第三方 Key</p>
         <div class="action-row">
           <button class="soft-button" type="button" @click="edit(model)">编辑</button>
           <button class="soft-button" type="button" @click="store.testModel(model)">检测</button>

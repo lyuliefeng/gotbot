@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GenerationMode } from '@/types/domain'
 import {
+  aspectPresets,
   defaultModels,
   defaultPrompts,
   defaultToolForMode,
@@ -54,6 +55,17 @@ describe('catalog tool groups integrity', () => {
 })
 
 describe('catalog optional field validity', () => {
+  it('exposes a GPT 4K square image size preset', () => {
+    expect(aspectPresets).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'gpt-4k-square',
+        name: 'GPT 4K',
+        width: 4096,
+        height: 4096,
+      }),
+    ]))
+  })
+
   it('keeps recommendedSize dimensions within integer bounds when present', () => {
     for (const tool of toolEntries) {
       if (!tool.recommendedSize) continue
@@ -153,12 +165,9 @@ describe('catalog builtin prompt library', () => {
   })
 })
 
-describe('catalog Agnes model defaults', () => {
-  it('keeps Agnes defaults on concrete API paths', () => {
-    expect(defaultModels).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'agnes-image', apiPath: 'v1/images/generations', apiProtocol: 'agnes-image' }),
-      expect.objectContaining({ id: 'agnes-video', apiPath: 'v1/videos', apiProtocol: 'agnes-video' }),
-    ]))
+describe('catalog model defaults', () => {
+  it('does not ship built-in API upstreams or default models', () => {
+    expect(defaultModels).toEqual([])
   })
 })
 
@@ -169,20 +178,11 @@ describe('catalog template tool wiring', () => {
     expect(tool.extraControls?.some((control) => isNonEmptyString(control.promptFragment))).toBe(true)
   })
 
-  it('adds video motion and face swap tools with explicit motion controls', () => {
-    const textVideo = findToolEntry('text-to-video') as ToolEntry
-    const imageVideo = findToolEntry('image-to-video') as ToolEntry
-    const faceSwap = findToolEntry('video-face-swap') as ToolEntry
-
-    expect(textVideo.extraControls?.some((control) => control.key === 'motionDirection')).toBe(true)
-    expect(imageVideo.extraControls?.some((control) => control.key === 'motionDirection')).toBe(true)
-    for (const tool of [textVideo, imageVideo, faceSwap]) {
-      expect(tool.extraControls?.some((control) => control.key === 'shotSize')).toBe(true)
-      expect(tool.extraControls?.some((control) => control.key === 'cameraMovement')).toBe(true)
-    }
-    expect(faceSwap.mode).toBe('img2video')
-    expect(faceSwap.referenceRequired).toBe(true)
-    expect(faceSwap.extraControls?.some((control) => control.key === 'faceMotion')).toBe(true)
+  it('exposes video generation tools', () => {
+    expect(findToolEntry('text-to-video')?.mode).toBe('txt2video')
+    expect(findToolEntry('image-to-video')?.mode).toBe('img2video')
+    expect(findToolEntry('video-face-swap')?.mode).toBe('img2video')
+    expect(toolEntries.some((tool) => tool.mode === 'txt2video' || tool.mode === 'img2video')).toBe(true)
   })
 
   it('keeps all tool entries wired with their own business metadata', () => {

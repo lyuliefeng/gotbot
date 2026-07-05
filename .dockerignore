@@ -1,0 +1,14 @@
+node_modules
+miniprogram/node_modules
+dist
+miniprogram/dist
+src-tauri/target
+src-tauri/target-*
+.git
+.DS_Store
+*.log
+.cargo-target
+.cargo-target-test
+release
+release-electron
+artifacts

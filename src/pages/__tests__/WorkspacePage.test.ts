@@ -24,6 +24,15 @@ describe('WorkspacePage generation feedback', () => {
     expect(source).not.toContain('class="generate-btn btn-primary"')
   })
 
+  it('keeps generation parameters as a single workspace sidebar entry', () => {
+    const source = readFileSync(workspacePagePath, 'utf8')
+
+    expect(source).toContain('<strong>生成参数</strong>')
+    expect(source).not.toContain('class="flow-row"')
+    expect(source).not.toContain('<span>2 参数</span>')
+    expect(source).not.toContain('<strong>参数与导出</strong>')
+  })
+
   it('guards generation against repeated submissions', () => {
     const source = readFileSync(workspacePagePath, 'utf8')
 
@@ -137,6 +146,18 @@ describe('WorkspacePage tool-aware rendering', () => {
     expect(source).toContain('视频提示词会通过文本润色模型补充主体、动作、场景、镜头运动和光照。')
   })
 
+  it('uses the text model auto route for workspace polishing actions', () => {
+    const source = readFileSync(workspacePagePath, 'utf8')
+
+    expect(source).toContain('const textAutoRouteSummary = computed')
+    expect(source).toContain('store.textAutoRouteProfiles')
+    expect(source).toContain('文本生成 / AI 润色')
+    expect(source).toContain('正向润色、反向提示词润色和译英统一走文本模型 auto 路由')
+    expect(source).toContain('class="route-info-card"')
+    expect(source).not.toContain('selectedTextModelId')
+    expect(source).not.toContain('id="workspace-text-model"')
+  })
+
   it('exposes explicit 8n plus 1 frame control for video generation', () => {
     const source = readFileSync(workspacePagePath, 'utf8')
 
@@ -177,6 +198,54 @@ describe('WorkspacePage tool-aware rendering', () => {
     expect(source).toContain('tool-banner')
     expect(source).toContain('工具参数')
     expect(source).toContain('使用提示')
+  })
+
+  it('opens the workspace tool picker in a modal instead of an always-expanded sidebar list', () => {
+    const source = readFileSync(workspacePagePath, 'utf8')
+
+    expect(source).toContain('const toolPickerOpen = ref(false)')
+    expect(source).toContain('const activeToolGroupId = ref')
+    expect(source).toContain('const activeToolGroupTools = computed')
+    expect(source).toContain('function openToolPicker')
+    expect(source).toContain('@click="openToolPicker"')
+    expect(source).toContain('class="modal tool-picker-modal"')
+    expect(source).toContain('aria-labelledby="tool-picker-title"')
+    expect(source).toContain('toolPickerOpen.value = false')
+    expect(source).toContain('工作台不再被长列表撑高')
+    expect(source).toContain('tool-summary-card')
+    expect(source).toContain('class="tool-group-tabs"')
+    expect(source).toContain('v-for="tool in activeToolGroupTools"')
+    expect(source).toContain('{{ activeToolGroupTools.length }} 个入口')
+    expect(source).toContain('grid-template-columns: 104px minmax(0, 1fr)')
+    expect(source).toContain('repeat(auto-fit, minmax(148px, 1fr))')
+  })
+
+  it('keeps the creation entrance compact with folded square cards', () => {
+    const source = readFileSync(workspacePagePath, 'utf8')
+
+    expect(source).toContain('class="workspace-fold-card reference-fold-card"')
+    expect(source).toContain('class="reference-square"')
+    expect(source).toContain('const referenceSummary = computed')
+    expect(source).toContain('class="workspace-fold-card result-fold-card"')
+    expect(source).toContain('const previewSummary = computed')
+    expect(source).toContain('<strong>生成参数</strong>')
+    expect(source).toContain('const generationParamsSummary = computed')
+    expect(source).toContain('<strong>输出尺寸</strong>')
+    expect(source).toContain('<strong>生成控制</strong>')
+    expect(source).toContain('<strong>模式专属</strong>')
+    expect(source).toContain('<strong>工具参数</strong>')
+    expect(source).toContain('当前入口没有额外工具参数。')
+  })
+
+  it('adds AI polish support for the negative prompt field', () => {
+    const source = readFileSync(workspacePagePath, 'utf8')
+
+    expect(source).toContain('const polishingNegativePrompt = ref(false)')
+    expect(source).toContain('async function polishNegativePrompt')
+    expect(source).toContain("task: 'negative-prompt'")
+    expect(source).toContain('id="workspace-negative-prompt"')
+    expect(source).toContain("{{ polishingNegativePrompt ? '润色中...' : 'AI 润色' }}")
+    expect(source).toContain("store.notify('已填入基础反向提示词')")
   })
 
   it('prefers the active tool flow copy over the mode fallback', () => {

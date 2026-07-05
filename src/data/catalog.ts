@@ -27,6 +27,12 @@ const builtinPromptMarkdown = `
 const supplementalPromptMarkdown = `
 # 提示词补充
 
+## GPT Image 2
+
+| 序号 | 中文提示词 | 英文提示词 |
+|---|---|---|
+| 1 | 高质量产品主视觉，真实材质，干净构图，细节丰富，适合 GPT Image 2 生图 | high quality product hero visual, realistic materials, clean composition, rich details, optimized for GPT Image 2 image generation |
+
 ## 文生视频
 
 | 序号 | 中文提示词 | 英文提示词 |
@@ -1284,6 +1290,7 @@ export const threeDStylePresets: ThreeDStylePreset[] = [
 
 export const aspectPresets = [
   { id: 'square', name: '1:1', width: 1024, height: 1024 },
+  { id: 'gpt-4k-square', name: 'GPT 4K', width: 4096, height: 4096 },
   { id: 'portrait', name: '2:3', width: 1024, height: 1536 },
   { id: 'landscape', name: '3:2', width: 1536, height: 1024 },
   { id: 'xhs', name: '小红书', width: 1080, height: 1440 },
@@ -1340,47 +1347,7 @@ export const defaultCoverPresets: CoverPreset[] = [
   { id: 'douyin', name: '抖音/视频号', width: 1080, height: 1920, enabled: true, custom: false },
 ]
 
-export const defaultModels: ModelProfile[] = [
-  {
-    id: 'text-polish',
-    name: 'Text Polish',
-    provider: 'openai-compatible',
-    endpoint: '',
-    apiPath: 'v1/chat/completions',
-    apiProtocol: 'openai-chat',
-    apiKey: '',
-    model: '',
-    kind: 'text',
-    isPrimary: false,
-    status: 'untested',
-  },
-  {
-    id: 'agnes-image',
-    name: 'Agnes Image',
-    provider: 'openai-compatible',
-    endpoint: 'https://apihub.agnes-ai.com',
-    apiPath: 'v1/images/generations',
-    apiProtocol: 'agnes-image',
-    apiKey: '',
-    model: 'agnes-image-2.1-flash',
-    kind: 'image',
-    isPrimary: false,
-    status: 'untested',
-  },
-  {
-    id: 'agnes-video',
-    name: 'Agnes Video',
-    provider: 'openai-compatible',
-    endpoint: 'https://apihub.agnes-ai.com',
-    apiPath: 'v1/videos',
-    apiProtocol: 'agnes-video',
-    apiKey: '',
-    model: 'agnes-video-v2.0',
-    kind: 'video',
-    isPrimary: false,
-    status: 'untested',
-  },
-]
+export const defaultModels: ModelProfile[] = []
 
 const now = new Date().toISOString()
 const fallbackBuiltinPrompts = [

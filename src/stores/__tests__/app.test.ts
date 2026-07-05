@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '../app'
 import { invokeOptional, isElectronRuntime } from '@/services/desktop'
 
@@ -21,13 +21,42 @@ describe('app store generation bridge', () => {
     mockedIsElectronRuntime.mockReturnValue(true)
   })
 
-  it('does not expose the local preview model in default model configuration', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('starts without built-in API upstreams or default models', () => {
     const store = useAppStore()
 
     expect(store.models.some((model) => model.id === 'local-preview')).toBe(false)
     expect(store.imageModels.some((model) => model.provider === 'local-preview')).toBe(false)
-    expect(store.settings.defaultImageModelId).toBe('agnes-image')
-    expect(store.videoModels.some((model) => model.id === 'agnes-video')).toBe(true)
+    expect(store.models).toEqual([])
+    expect(store.settings.defaultImageModelId).toBe('')
+    expect(store.imageModels).toEqual([])
+    expect(store.videoModels).toEqual([])
+  })
+
+  it('uses a gotbot default output directory internally', () => {
+    const store = useAppStore()
+
+    expect(store.settings.defaultOutputDir.toLowerCase()).toContain('gotbot')
+    expect(store.settings.defaultOutputDir.toLowerCase()).not.toContain('samimage')
+  })
+
+  it('migrates legacy SamImage output directories to gotbot', () => {
+    localStorage.setItem('samimage.v3.state', JSON.stringify({
+      models: [],
+      prompts: [],
+      tasks: [],
+      coverPresets: [],
+      settings: {
+        defaultOutputDir: 'D:\\SamImage\\Exports',
+      },
+    }))
+
+    const store = useAppStore()
+
+    expect(store.settings.defaultOutputDir).toBe('D:\\gotbot\\Exports')
   })
 
   it('removes legacy local preview models from persisted app state', async () => {
@@ -93,13 +122,9 @@ describe('app store generation bridge', () => {
     await store.loadPersistedTasks()
 
     expect(store.models.some((model) => model.id === 'local-preview')).toBe(false)
-    expect(store.imageModels).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'remote-image', isPrimary: false }),
-      expect.objectContaining({ id: 'agnes-image' }),
-    ]))
-    expect(store.videoModels).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'agnes-video' }),
-    ]))
+    expect(store.imageModels).toEqual([expect.objectContaining({ id: 'remote-image', isPrimary: false })])
+    expect(store.models.some((model) => model.id === 'agnes-image')).toBe(false)
+    expect(store.models.some((model) => model.id === 'openai-gpt-image-2')).toBe(false)
     expect(store.settings.defaultImageModelId).toBe('remote-image')
   })
 
@@ -222,6 +247,174 @@ describe('app store generation bridge', () => {
         }),
       }),
     )
+  })
+
+  it('uses the same-origin web generation proxy when desktop bridge is unavailable', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      id: 'task-web-proxy',
+      mode: 'txt2img',
+      prompt: 'Web 端真实生成',
+      negativePrompt: '',
+      modelId: 'web-image',
+      width: 1024,
+      height: 1024,
+      batchSize: 1,
+      steps: 24,
+      seed: 42,
+      style: '自然',
+      modeOptions: {},
+      status: 'completed',
+      assets: [{
+        id: 'asset-web-proxy',
+        taskId: 'task-web-proxy',
+        title: 'Web 端真实生成',
+        width: 1024,
+        height: 1024,
+        format: 'png',
+        dataUrl: 'data:image/png;base64,web',
+        mediaType: 'image',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAppStore()
+    store.saveModel({
+      id: 'web-image',
+      name: 'Web Image',
+      provider: 'openai-compatible',
+      endpoint: 'https://api.example.test/v1/images/generations',
+      apiKey: 'sk-web',
+      model: 'gpt-image-1',
+      kind: 'image',
+      isPrimary: true,
+      status: 'connected',
+    })
+
+    const task = await store.generate({
+      mode: 'txt2img',
+      prompt: 'Web 端真实生成',
+      negativePrompt: '',
+      modelId: 'web-image',
+      width: 1024,
+      height: 1024,
+      batchSize: 1,
+      steps: 24,
+      seed: 42,
+      style: '自然',
+      modeOptions: {},
+    })
+
+    expect(task.id).toBe('task-web-proxy')
+    expect(mockedInvokeOptional).not.toHaveBeenCalledWith('create_generation_task', expect.anything())
+    expect(fetchMock).toHaveBeenCalledWith('/api/generation', expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    const firstFetchCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = JSON.parse(String(firstFetchCall[1].body))
+    expect(body).toEqual(expect.objectContaining({
+      input: expect.objectContaining({ modelId: 'web-image' }),
+      model: expect.objectContaining({
+        id: 'web-image',
+        endpoint: 'https://api.example.test',
+        apiPath: 'v1/images/generations',
+        apiKey: 'sk-web',
+        model: 'gpt-image-1',
+      }),
+    }))
+    expect(store.operationTasks[0]).toEqual(expect.objectContaining({
+      id: 'task-web-proxy',
+      status: 'completed',
+      modelId: 'web-image',
+    }))
+  })
+
+  it('uses the same-origin web generation proxy for Agnes video models', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      id: 'task-web-video',
+      mode: 'txt2video',
+      prompt: 'Web 端 Agnes 视频生成',
+      negativePrompt: '',
+      modelId: 'web-video',
+      width: 1024,
+      height: 576,
+      batchSize: 1,
+      steps: 24,
+      seed: 42,
+      style: '电影',
+      modeOptions: { numFrames: 81, frameRate: 24 },
+      status: 'completed',
+      assets: [{
+        id: 'asset-web-video',
+        taskId: 'task-web-video',
+        title: 'Web 端 Agnes 视频生成',
+        width: 1024,
+        height: 576,
+        format: 'mp4',
+        dataUrl: 'https://cdn.example.test/video.mp4',
+        remoteUrl: 'https://cdn.example.test/video.mp4',
+        mediaType: 'video',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAppStore()
+    store.saveModel({
+      id: 'web-video',
+      name: 'Web Video',
+      provider: 'openai-compatible',
+      endpoint: 'https://apihub.agnes-ai.com',
+      apiPath: 'v1/videos',
+      apiProtocol: 'agnes-video',
+      apiKey: 'sk-web-video',
+      model: 'agnes-video-v2.0',
+      kind: 'video',
+      isPrimary: true,
+      status: 'connected',
+    })
+
+    const task = await store.generate({
+      mode: 'txt2video',
+      prompt: 'Web 端 Agnes 视频生成',
+      negativePrompt: '',
+      modelId: 'web-video',
+      width: 1024,
+      height: 576,
+      batchSize: 1,
+      steps: 24,
+      seed: 42,
+      style: '电影',
+      modeOptions: { numFrames: 81, frameRate: 24 },
+    })
+
+    expect(task.id).toBe('task-web-video')
+    expect(task.assets[0]).toEqual(expect.objectContaining({
+      format: 'mp4',
+      mediaType: 'video',
+      remoteUrl: 'https://cdn.example.test/video.mp4',
+    }))
+    const firstFetchCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = JSON.parse(String(firstFetchCall[1].body))
+    expect(body.model).toEqual(expect.objectContaining({
+      id: 'web-video',
+      apiProtocol: 'agnes-video',
+      model: 'agnes-video-v2.0',
+    }))
+    expect(store.operationTasks[0]).toEqual(expect.objectContaining({
+      id: 'task-web-video',
+      status: 'completed',
+      modelId: 'web-video',
+    }))
   })
 
   it('rejects workspace generation when only the local preview model is selected', async () => {
@@ -928,6 +1121,143 @@ describe('app store generation bridge', () => {
     )
   })
 
+  it('auto-routes prompt polishing across configured text models', async () => {
+    const store = useAppStore()
+    store.saveModel({
+      id: 'route-text-a',
+      name: 'Route Text A',
+      provider: 'openai-compatible',
+      endpoint: 'https://text-a.example.test/v1/chat/completions',
+      apiKey: 'sk-text-a',
+      model: 'gpt-4o-mini',
+      kind: 'text',
+      isPrimary: true,
+      status: 'connected',
+    })
+    store.saveModel({
+      id: 'route-text-b',
+      name: 'Route Text B',
+      provider: 'openai-compatible',
+      endpoint: 'https://text-b.example.test/v1/chat/completions',
+      apiKey: 'sk-text-b',
+      model: 'claude-3-5-haiku',
+      kind: 'text',
+      isPrimary: false,
+      status: 'connected',
+    })
+    mockedInvokeOptional.mockClear()
+    mockedInvokeOptional.mockImplementation(async (command, args) => {
+      if (command !== 'polish_prompt') return null
+      const payload = args as { model?: { id?: string } } | undefined
+      if (payload?.model?.id === 'route-text-a') throw new Error('text upstream A failed')
+      return {
+        prompt: '文本模型 B 润色结果',
+        modelName: 'Route Text B',
+      }
+    })
+
+    const result = await store.polishPrompt({
+      prompt: '产品海报',
+      modeLabel: '文生图',
+      style: '自然',
+      task: 'polish',
+    })
+
+    expect(result.prompt).toBe('文本模型 B 润色结果')
+    expect(store.textAutoRouteProfiles.map((model) => model.id)).toEqual(['route-text-a', 'route-text-b'])
+    expect(mockedInvokeOptional).toHaveBeenNthCalledWith(
+      1,
+      'polish_prompt',
+      expect.objectContaining({ model: expect.objectContaining({ id: 'route-text-a' }) }),
+    )
+    expect(mockedInvokeOptional).toHaveBeenNthCalledWith(
+      2,
+      'polish_prompt',
+      expect.objectContaining({ model: expect.objectContaining({ id: 'route-text-b' }) }),
+    )
+  })
+
+  it('uses the same text auto route for negative prompt polishing', async () => {
+    const store = useAppStore()
+    store.saveModel({
+      id: 'negative-text-a',
+      name: 'Negative Text A',
+      provider: 'openai-compatible',
+      endpoint: 'https://negative-a.example.test/v1/chat/completions',
+      apiKey: 'sk-negative-a',
+      model: 'gpt-4o-mini',
+      kind: 'text',
+      isPrimary: true,
+      status: 'failed',
+    })
+    store.saveModel({
+      id: 'negative-text-b',
+      name: 'Negative Text B',
+      provider: 'openai-compatible',
+      endpoint: 'https://negative-b.example.test/v1/chat/completions',
+      apiKey: 'sk-negative-b',
+      model: 'gpt-4o-mini',
+      kind: 'text',
+      isPrimary: false,
+      status: 'connected',
+    })
+    mockedInvokeOptional.mockClear()
+    mockedInvokeOptional.mockImplementation(async (command, args) => {
+      if (command !== 'polish_prompt') return null
+      const payload = args as { model?: { id?: string } } | undefined
+      if (payload?.model?.id === 'negative-text-a') throw new Error('negative text upstream failed')
+      return {
+        prompt: '低清晰度、文字水印、结构变形',
+        modelName: 'Negative Text B',
+      }
+    })
+
+    const result = await store.polishPrompt({
+      prompt: '文字水印',
+      modeLabel: '文生图反向提示词',
+      style: '反向约束',
+      task: 'negative-prompt',
+    })
+
+    expect(result.modelName).toBe('Negative Text B')
+    expect(result.prompt).toContain('结构变形')
+    expect(mockedInvokeOptional).toHaveBeenCalledTimes(2)
+    expect(mockedInvokeOptional).toHaveBeenNthCalledWith(
+      2,
+      'polish_prompt',
+      expect.objectContaining({
+        input: expect.objectContaining({ task: 'negative-prompt' }),
+        model: expect.objectContaining({ id: 'negative-text-b' }),
+      }),
+    )
+  })
+
+  it('polishes negative prompts in the browser fallback path', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const store = useAppStore()
+
+    const result = await store.polishPrompt(
+      {
+        prompt: '模糊、文字水印',
+        modeLabel: '文生图反向提示词',
+        style: '反向约束',
+        task: 'negative-prompt',
+      },
+    )
+
+    expect(result.prompt.split('、')).toEqual(expect.arrayContaining([
+      '模糊',
+      '文字水印',
+      '结构变形',
+      '多余肢体',
+      '噪点',
+      '过曝',
+      '构图混乱',
+    ]))
+    expect(result.prompt.match(/文字水印/g)).toHaveLength(1)
+    expect(mockedInvokeOptional).not.toHaveBeenCalledWith('polish_prompt', expect.anything())
+  })
+
   it('persists model configuration to the Electron app state store', async () => {
     const store = useAppStore()
 
@@ -956,6 +1286,323 @@ describe('app store generation bridge', () => {
         }),
       }),
     )
+  })
+
+  it('keeps every saved upstream for the same model in one auto-route group', () => {
+    const store = useAppStore()
+
+    store.saveModel({
+      id: 'route-image-a',
+      name: 'Route Image A',
+      provider: 'openai-compatible',
+      endpoint: 'https://api-a.example.test/v1/images/generations',
+      apiKey: 'sk-a',
+      model: 'gpt-image-2',
+      kind: 'image',
+      isPrimary: true,
+      status: 'connected',
+    })
+    store.saveModel({
+      id: 'route-image-b',
+      name: 'Route Image B',
+      provider: 'openai-compatible',
+      endpoint: 'https://api-b.example.test/v1/images/generations',
+      apiKey: 'sk-b',
+      model: 'gpt-image-2',
+      kind: 'image',
+      isPrimary: false,
+      status: 'untested',
+    })
+
+    const routeGroup = store.modelRouteGroups.find((group) => group.kind === 'image' && group.model === 'gpt-image-2')
+
+    expect(routeGroup?.profiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'route-image-a', endpoint: 'https://api-a.example.test' }),
+      expect.objectContaining({ id: 'route-image-b', endpoint: 'https://api-b.example.test' }),
+    ]))
+    expect(routeGroup?.profiles.some((profile) => profile.id === 'openai-gpt-image-2')).toBe(false)
+  })
+
+  it('saves fetched catalog models in one batch and routes them by model kind', () => {
+    const store = useAppStore()
+
+    store.saveModels([
+      {
+        id: 'batch-text',
+        name: 'Batch Provider',
+        provider: 'openai-compatible',
+        endpoint: 'https://batch.example.test',
+        apiPath: 'v1/chat/completions',
+        apiProtocol: 'openai-chat',
+        apiKey: 'sk-batch',
+        model: 'agnes-2.0-flash',
+        kind: 'text',
+        isPrimary: false,
+        status: 'connected',
+      },
+      {
+        id: 'batch-image',
+        name: 'Batch Provider',
+        provider: 'openai-compatible',
+        endpoint: 'https://batch.example.test',
+        apiPath: 'v1/images/generations',
+        apiProtocol: 'agnes-image',
+        apiKey: 'sk-batch',
+        model: 'agnes-image-2.1-flash',
+        kind: 'image',
+        isPrimary: false,
+        status: 'connected',
+      },
+      {
+        id: 'batch-video',
+        name: 'Batch Provider',
+        provider: 'openai-compatible',
+        endpoint: 'https://batch.example.test',
+        apiPath: 'v1/videos',
+        apiProtocol: 'agnes-video',
+        apiKey: 'sk-batch',
+        model: 'agnes-video-v2.0',
+        kind: 'video',
+        isPrimary: false,
+        status: 'connected',
+      },
+    ], '已导入 3 个模型，并按类型自动路由')
+
+    expect(store.modelRouteGroups).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'text', model: 'agnes-2.0-flash' }),
+      expect.objectContaining({ kind: 'image', model: 'agnes-image-2.1-flash' }),
+      expect.objectContaining({ kind: 'video', model: 'agnes-video-v2.0' }),
+    ]))
+    expect(store.toast).toEqual(expect.objectContaining({
+      message: '已导入 3 个模型，并按类型自动路由',
+      type: 'success',
+    }))
+  })
+
+  it('replaces endpoint models with the currently checked catalog models', () => {
+    const store = useAppStore()
+
+    store.saveModels([
+      {
+        id: 'endpoint-text',
+        name: 'Agnes',
+        provider: 'openai-compatible',
+        endpoint: 'https://apihub.agnes-ai.com',
+        apiPath: 'v1/chat/completions',
+        apiProtocol: 'openai-chat',
+        apiKey: 'sk-agnes',
+        model: 'agnes-2.0-flash',
+        kind: 'text',
+        isPrimary: false,
+        status: 'connected',
+      },
+      {
+        id: 'endpoint-image',
+        name: 'Agnes',
+        provider: 'openai-compatible',
+        endpoint: 'https://apihub.agnes-ai.com',
+        apiPath: 'v1/images/generations',
+        apiProtocol: 'agnes-image',
+        apiKey: 'sk-agnes',
+        model: 'agnes-image-2.1-flash',
+        kind: 'image',
+        isPrimary: false,
+        status: 'connected',
+      },
+    ])
+
+    store.replaceModelsForEndpoint('https://apihub.agnes-ai.com', [
+      {
+        id: 'endpoint-image',
+        name: 'Agnes',
+        provider: 'openai-compatible',
+        endpoint: 'https://apihub.agnes-ai.com',
+        apiPath: 'v1/images/generations',
+        apiProtocol: 'agnes-image',
+        apiKey: 'sk-agnes',
+        model: 'agnes-image-2.1-flash',
+        kind: 'image',
+        isPrimary: false,
+        status: 'connected',
+      },
+    ], '已同步 1 个模型到模型管理')
+
+    expect(store.models.map((model) => model.model)).toEqual(['agnes-image-2.1-flash'])
+    expect(store.toast).toEqual(expect.objectContaining({
+      message: '已同步 1 个模型到模型管理',
+      type: 'success',
+    }))
+  })
+
+  it('automatically falls back to another upstream with the same model id during generation', async () => {
+    const store = useAppStore()
+
+    store.saveModel({
+      id: 'route-image-a',
+      name: 'Route Image A',
+      provider: 'openai-compatible',
+      endpoint: 'https://api-a.example.test',
+      apiPath: 'v1/images/generations',
+      apiProtocol: 'openai-images',
+      apiKey: 'sk-a',
+      model: 'gpt-image-2',
+      kind: 'image',
+      isPrimary: true,
+      status: 'connected',
+    })
+    store.saveModel({
+      id: 'route-image-b',
+      name: 'Route Image B',
+      provider: 'openai-compatible',
+      endpoint: 'https://api-b.example.test',
+      apiPath: 'v1/images/generations',
+      apiProtocol: 'openai-images',
+      apiKey: 'sk-b',
+      model: 'gpt-image-2',
+      kind: 'image',
+      isPrimary: false,
+      status: 'connected',
+    })
+    mockedInvokeOptional.mockClear()
+    mockedInvokeOptional.mockImplementation(async (command, args) => {
+      if (command !== 'create_generation_task') return null
+      const payload = args as { model?: { id?: string } } | undefined
+      if (payload?.model?.id === 'route-image-a') throw new Error('HTTP 500 upstream A failed')
+      return {
+        id: 'task-route-b',
+        mode: 'txt2img',
+        prompt: '自动路由回退',
+        negativePrompt: '',
+        modelId: 'route-image-b',
+        width: 1024,
+        height: 1024,
+        batchSize: 1,
+        steps: 24,
+        seed: 42,
+        style: '自然',
+        modeOptions: {},
+        status: 'completed',
+        assets: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }
+    })
+
+    const task = await store.generate({
+      mode: 'txt2img',
+      prompt: '自动路由回退',
+      negativePrompt: '',
+      modelId: 'route-image-a',
+      width: 1024,
+      height: 1024,
+      batchSize: 1,
+      steps: 24,
+      seed: 42,
+      style: '自然',
+      modeOptions: {},
+    })
+
+    expect(task.id).toBe('task-route-b')
+    expect(mockedInvokeOptional).toHaveBeenNthCalledWith(
+      1,
+      'create_generation_task',
+      expect.objectContaining({ model: expect.objectContaining({ id: 'route-image-a' }) }),
+    )
+    expect(mockedInvokeOptional).toHaveBeenNthCalledWith(
+      2,
+      'create_generation_task',
+      expect.objectContaining({
+        input: expect.objectContaining({ modelId: 'route-image-b' }),
+        model: expect.objectContaining({ id: 'route-image-b' }),
+      }),
+    )
+    expect(store.operationTasks[0]).toEqual(expect.objectContaining({
+      id: 'task-route-b',
+      status: 'completed',
+      modelId: 'route-image-b',
+    }))
+  })
+
+  it('uses automatic route fallback through the web generation proxy', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'HTTP 500 upstream A failed' }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 502,
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 'task-web-route-b',
+        mode: 'txt2img',
+        prompt: 'Web 自动路由回退',
+        negativePrompt: '',
+        modelId: 'web-route-b',
+        width: 1024,
+        height: 1024,
+        batchSize: 1,
+        steps: 24,
+        seed: 42,
+        style: '自然',
+        modeOptions: {},
+        status: 'completed',
+        assets: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAppStore()
+    store.saveModel({
+      id: 'web-route-a',
+      name: 'Web Route A',
+      provider: 'openai-compatible',
+      endpoint: 'https://api-a.example.test',
+      apiPath: 'v1/images/generations',
+      apiProtocol: 'openai-images',
+      apiKey: 'sk-a',
+      model: 'gpt-image-2',
+      kind: 'image',
+      isPrimary: true,
+      status: 'connected',
+    })
+    store.saveModel({
+      id: 'web-route-b',
+      name: 'Web Route B',
+      provider: 'openai-compatible',
+      endpoint: 'https://api-b.example.test',
+      apiPath: 'v1/images/generations',
+      apiProtocol: 'openai-images',
+      apiKey: 'sk-b',
+      model: 'gpt-image-2',
+      kind: 'image',
+      isPrimary: false,
+      status: 'connected',
+    })
+
+    const task = await store.generate({
+      mode: 'txt2img',
+      prompt: 'Web 自动路由回退',
+      negativePrompt: '',
+      modelId: 'web-route-a',
+      width: 1024,
+      height: 1024,
+      batchSize: 1,
+      steps: 24,
+      seed: 42,
+      style: '自然',
+      modeOptions: {},
+    })
+
+    expect(task.id).toBe('task-web-route-b')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const firstFetchCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const secondFetchCall = fetchMock.mock.calls[1] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(firstFetchCall[1].body)).model.id).toBe('web-route-a')
+    expect(JSON.parse(String(secondFetchCall[1].body)).model.id).toBe('web-route-b')
+    expect(store.operationTasks[0]).toEqual(expect.objectContaining({
+      id: 'task-web-route-b',
+      status: 'completed',
+      modelId: 'web-route-b',
+    }))
   })
 
   it('loads full app state from Electron before merging persisted tasks', async () => {
@@ -1053,8 +1700,17 @@ describe('app store generation bridge', () => {
     }))
   })
 
-  it('does not mark remote models failed when connection testing runs in browser preview', async () => {
+  it('detects remote models through catalog lookup when connection testing runs in browser preview', async () => {
     mockedIsElectronRuntime.mockReturnValue(false)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      data: [
+        { id: 'gpt-4o-mini' },
+      ],
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
     const store = useAppStore()
     store.saveModel({
       id: 'browser-preview-text',
@@ -1070,12 +1726,22 @@ describe('app store generation bridge', () => {
 
     await store.testModel('browser-preview-text')
 
-    expect(store.models.find((model) => model.id === 'browser-preview-text')?.status).toBe('untested')
+    expect(store.models.find((model) => model.id === 'browser-preview-text')?.status).toBe('connected')
     expect(mockedInvokeOptional).not.toHaveBeenCalledWith('test_model_profile', expect.anything())
     expect(store.toast).toEqual(expect.objectContaining({
-      message: '浏览器预览模式不能直连模型 API，请在桌面版检测连接',
-      type: 'info',
+      message: '模型列表接口可用，已获取 1 个模型',
+      type: 'success',
     }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/model-catalog', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        endpoint: 'https://api.example.test',
+        apiKey: 'sk-text',
+      }),
+    })
   })
 
   it('validates text model configuration before running connection test', async () => {
@@ -1161,5 +1827,145 @@ describe('app store generation bridge', () => {
       }),
     ])
     expect(mockedInvokeOptional).toHaveBeenCalledWith('list_model_catalog', { profile })
+  })
+
+  it('fetches model catalog through same-origin proxy when desktop bridge is unavailable', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      data: [
+        { id: 'agnes-2.0-flash' },
+        { id: 'gpt-image-1' },
+        { id: 'gpt-4o-mini' },
+        { id: 'tts-1' },
+        { id: 'custom-model-v1' },
+      ],
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useAppStore()
+    const profile = {
+      id: 'browser-route',
+      name: 'Browser Route',
+      provider: 'openai-compatible' as const,
+      endpoint: 'https://api.example.test/relay/v1/chat/completions',
+      apiKey: 'sk-text',
+      model: '',
+      kind: 'text' as const,
+      isPrimary: false,
+      status: 'untested' as const,
+    }
+
+    const models = await store.fetchModelCatalog(profile)
+
+    expect(models).toEqual([
+      expect.objectContaining({ id: 'agnes-2.0-flash', kind: 'text' }),
+      expect.objectContaining({ id: 'custom-model-v1', kind: 'unknown' }),
+      expect.objectContaining({ id: 'gpt-4o-mini', kind: 'text' }),
+      expect.objectContaining({ id: 'gpt-image-1', kind: 'image' }),
+      expect.objectContaining({ id: 'tts-1', kind: 'tts' }),
+    ])
+    expect(mockedInvokeOptional).not.toHaveBeenCalledWith('list_model_catalog', expect.anything())
+    expect(fetchMock).toHaveBeenCalledWith('/api/model-catalog', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        endpoint: 'https://api.example.test/relay/v1/chat/completions',
+        apiKey: 'sk-text',
+      }),
+    })
+  })
+
+  it('falls back to direct model catalog request when same-origin proxy is unavailable', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [
+          { id: 'gpt-4o-mini' },
+        ],
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useAppStore()
+    const profile = {
+      id: 'browser-direct-route',
+      name: 'Browser Direct Route',
+      provider: 'openai-compatible' as const,
+      endpoint: 'https://api.example.test/v1/chat/completions',
+      apiKey: 'sk-text',
+      model: '',
+      kind: 'text' as const,
+      isPrimary: false,
+      status: 'untested' as const,
+    }
+
+    const models = await store.fetchModelCatalog(profile)
+
+    expect(models).toEqual([
+      expect.objectContaining({ id: 'gpt-4o-mini', kind: 'text' }),
+    ])
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/model-catalog', expect.objectContaining({
+      method: 'POST',
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://api.example.test/v1/models', {
+      headers: {
+        Authorization: 'Bearer sk-text',
+      },
+    })
+  })
+
+  it('detects model connections through browser model catalog fallback', async () => {
+    mockedIsElectronRuntime.mockReturnValue(false)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      data: [
+        { id: 'gpt-image-2' },
+      ],
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useAppStore()
+    store.saveModel({
+      id: 'browser-detect-image',
+      name: 'Browser Detect Image',
+      provider: 'openai-compatible',
+      endpoint: 'https://api.example.test/v1/images/generations',
+      apiKey: 'sk-image',
+      model: 'gpt-image-2',
+      kind: 'image',
+      isPrimary: false,
+      status: 'untested',
+    })
+
+    await store.testModel('browser-detect-image')
+
+    expect(store.models.find((model) => model.id === 'browser-detect-image')).toEqual(expect.objectContaining({
+      status: 'connected',
+      lastCheckedAt: expect.any(String),
+    }))
+    expect(store.toast).toEqual(expect.objectContaining({
+      message: '模型列表接口可用，已获取 1 个模型',
+      type: 'success',
+    }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/model-catalog', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        endpoint: 'https://api.example.test',
+        apiKey: 'sk-image',
+      }),
+    })
   })
 })

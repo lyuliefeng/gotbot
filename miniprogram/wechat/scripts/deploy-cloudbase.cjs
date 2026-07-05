@@ -38,6 +38,7 @@ const functions = [
   { name: 'generationTasks', timeout: 300 },
   { name: 'promptPacks', timeout: 10 },
   { name: 'promptPolish', timeout: 60 },
+  { name: 'realtimeScan', timeout: 30 },
 ]
 
 fs.writeFileSync(path.join(deployRoot, 'cloudbaserc.json'), JSON.stringify({

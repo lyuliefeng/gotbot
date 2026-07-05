@@ -5,6 +5,10 @@ const crypto = require('node:crypto')
 
 const isDev = process.env.ELECTRON_DEV === '1'
 const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:3030'
+const AGNES_VIDEOS_PATH = 'v1/videos'
+const AGNES_LITTERBOX_UPLOAD_URL = 'https://litterbox.catbox.moe/resources/internals/api.php'
+const AGNES_VIDEO_POLL_INTERVAL_MS = 5000
+const AGNES_VIDEO_POLL_TIMEOUT_MS = 600000
 
 let mainWindow = null
 let store = null
@@ -164,6 +168,7 @@ async function createGenerationTask(input, model) {
 
   const protocol = model.apiProtocol || 'openai-images'
   if (protocol === 'openai-images' || protocol === 'agnes-image') return createOpenAiImagesGeneration(input, model)
+  if (protocol === 'agnes-video') return createAgnesVideoGeneration(input, model)
   if (protocol === 'multimodal-chat') return createMultimodalChatGeneration(input, model)
   if (protocol === 'openai-image-edits') return createOpenAiImageEditsGeneration(input, model)
   throw new Error(`Electron 版本暂未实现该生成协议: ${protocol}`)
@@ -207,6 +212,32 @@ async function createOpenAiImageEditsGeneration() {
   throw new Error('Electron 版本暂未实现 multipart 图像编辑协议，请使用 openai-images 或 multimodal-chat')
 }
 
+async function createAgnesVideoGeneration(input, model) {
+  if (input.mode !== 'txt2video' && input.mode !== 'img2video') throw new Error('Agnes 视频协议只能用于视频模式')
+  const endpoint = joinApiEndpoint(model.endpoint, model.apiPath, AGNES_VIDEOS_PATH)
+  const body = {
+    model: model.model.trim(),
+    prompt: input.prompt.trim(),
+    width: input.width,
+    height: input.height,
+    num_frames: numberModeOption(input, 'numFrames', 81),
+    frame_rate: numberModeOption(input, 'frameRate', 24),
+  }
+  if (String(input.negativePrompt || '').trim()) body.negative_prompt = String(input.negativePrompt).trim()
+  if (input.seed > 0) body.seed = input.seed
+  if (input.mode === 'img2video') body.image = await resolveAgnesInputImageUrl(input)
+
+  const created = await postJson(endpoint, model.apiKey, body)
+  const videoId = findAgnesVideoPollId(created)
+  if (!videoId) throw new Error(`Agnes 视频模型未返回 videoId/taskId: ${JSON.stringify(created)}`)
+  const completed = await pollAgnesVideo(model, videoId)
+  const videoUrl = findVideoUrl(completed)
+  if (!videoUrl) throw new Error(`Agnes 视频任务完成但未返回视频 URL: ${JSON.stringify(completed)}`)
+  const id = `task-${crypto.randomUUID()}`
+  const createdAt = new Date().toISOString()
+  return completedTask(input, id, createdAt, [videoResponseAsset(id, input, createdAt, videoUrl)])
+}
+
 async function taskFromImages(input, images) {
   const id = `task-${crypto.randomUUID()}`
   const createdAt = new Date().toISOString()
@@ -245,6 +276,23 @@ function responseAsset(taskId, input, index, createdAt, image) {
   }
 }
 
+function videoResponseAsset(taskId, input, createdAt, videoUrl) {
+  return {
+    id: `asset-${crypto.randomUUID()}`,
+    taskId,
+    title: `${input.mode} 1`,
+    width: input.width,
+    height: input.height,
+    format: 'mp4',
+    dataUrl: videoUrl,
+    localPath: undefined,
+    mediaType: 'video',
+    remoteUrl: videoUrl,
+    createdAt,
+    isFavorite: false,
+  }
+}
+
 function createPreviewAsset(taskId, input, index, createdAt) {
   const label = String(input.mode).toUpperCase()
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${input.width}" height="${input.height}" viewBox="0 0 ${input.width} ${input.height}"><rect width="100%" height="100%" fill="#2563eb"/><text x="50%" y="46%" text-anchor="middle" fill="white" font-size="48" font-family="Arial" font-weight="700">${escapeXml(label)}</text><text x="50%" y="56%" text-anchor="middle" fill="white" font-size="24" font-family="Arial">${index + 1}</text></svg>`
@@ -267,7 +315,9 @@ function createPreviewAsset(taskId, input, index, createdAt) {
 async function polishPrompt(input, model) {
   if (!model || model.provider === 'local-preview') return localPolishPrompt(input, model?.name || '本地文本润色')
   const endpoint = joinApiEndpoint(model.endpoint, model.apiPath, 'v1/chat/completions')
-  const system = 'You rewrite prompts for image and video generation. Return only the rewritten prompt.'
+  const system = input.task === 'negative-prompt'
+    ? 'You rewrite negative prompts for image and video generation. Return only disallowed defects and artifacts, never positive scene content.'
+    : 'You rewrite prompts for image and video generation. Return only the rewritten prompt.'
   const user = `${input.task || 'polish'} | ${input.modeLabel} | ${input.style}\n${input.prompt}`
   const payload = await postJson(endpoint, model.apiKey, {
     model: model.model,
@@ -280,6 +330,20 @@ async function polishPrompt(input, model) {
 }
 
 function localPolishPrompt(input, modelName) {
+  if (input.task === 'negative-prompt') {
+    const base = String(input.prompt || '').trim() || '低清晰度、变形、文字水印、错误构图'
+    const prompt = Array.from(new Set([
+      ...base.split(/[，,、]/).map((item) => item.trim()).filter(Boolean),
+      '低清晰度',
+      '结构变形',
+      '多余肢体',
+      '文字水印',
+      '噪点',
+      '过曝',
+      '构图混乱',
+    ])).join('、')
+    return { prompt, modelName }
+  }
   const joiner = input.task === 'translate-to-english' ? ', ' : '，'
   const extra = input.task === 'video-prompt'
     ? '主体明确，动作连续，场景稳定，镜头运动自然，光照和氛围具备电影感'
@@ -352,6 +416,138 @@ async function postJson(endpoint, apiKey, body) {
   } catch (error) {
     throw new Error(`解析模型响应失败: ${error instanceof Error ? error.message : String(error)}; ${text}`)
   }
+}
+
+async function pollAgnesVideo(model, videoId) {
+  const createEndpoint = joinApiEndpoint(model.endpoint, model.apiPath, AGNES_VIDEOS_PATH)
+  const pollEndpoint = agnesVideoPollEndpoint(createEndpoint)
+  const startedAt = Date.now()
+  while (Date.now() - startedAt <= AGNES_VIDEO_POLL_TIMEOUT_MS) {
+    const url = new URL(pollEndpoint)
+    url.searchParams.set('video_id', videoId)
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${String(model.apiKey || '').trim()}`,
+      },
+    })
+    const text = await response.text()
+    if (!response.ok) throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
+    const payload = text ? JSON.parse(text) : {}
+    const status = (findStringByKeys(payload, ['status', 'state']) || 'running').toLowerCase()
+    if (['completed', 'complete', 'succeeded', 'success', 'done'].includes(status)) return payload
+    if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(status)) throw new Error(`Agnes 视频任务失败: ${text}`)
+    await sleep(AGNES_VIDEO_POLL_INTERVAL_MS)
+  }
+  throw new Error(`Agnes 视频任务超时，videoId: ${videoId}`)
+}
+
+function agnesVideoPollEndpoint(createEndpoint) {
+  const url = new URL(createEndpoint)
+  const segments = url.pathname.split('/').filter(Boolean)
+  if (segments.at(-1) === 'videos') segments.pop()
+  if (segments.at(-1) === 'v1') segments.pop()
+  segments.push('agnesapi')
+  url.pathname = `/${segments.join('/')}`
+  url.search = ''
+  return url.toString()
+}
+
+function numberModeOption(input, key, fallback) {
+  const value = input.modeOptions?.[key]
+  const numberValue = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numberValue) && numberValue > 0 ? Math.round(numberValue) : fallback
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function normalizeSearchKey(key) {
+  return String(key).replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+}
+
+function findStringByKeys(value, keys) {
+  const normalizedKeys = new Set(keys.map(normalizeSearchKey))
+  if (!value || typeof value !== 'object') return undefined
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStringByKeys(item, keys)
+      if (found) return found
+    }
+    return undefined
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (normalizedKeys.has(normalizeSearchKey(key)) && typeof item === 'string' && item.trim()) return item.trim()
+    const found = findStringByKeys(item, keys)
+    if (found) return found
+  }
+  return undefined
+}
+
+function findAgnesVideoPollId(value) {
+  const direct = findStringByKeys(value, ['videoid', 'video_id'])
+  if (direct) return direct
+  const id = findStringByKeys(value, ['id'])
+  return id && id.toLowerCase().startsWith('video') ? id : undefined
+}
+
+function findVideoUrl(value) {
+  if (typeof value === 'string') {
+    const text = value.trim()
+    return text.startsWith('http') && text.includes('.mp4') ? text : undefined
+  }
+  if (!value || typeof value !== 'object') return undefined
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findVideoUrl(item)
+      if (found) return found
+    }
+    return undefined
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const normalized = normalizeSearchKey(key)
+    if (['videourl', 'url', 'remixedfromvideoid'].includes(normalized) && typeof item === 'string') {
+      const text = item.trim()
+      if (text.startsWith('http')) return text
+    }
+    const found = findVideoUrl(item)
+    if (found) return found
+  }
+  return undefined
+}
+
+async function resolveAgnesInputImageUrl(input) {
+  const referenceImage = String(input.referenceImage || '').trim()
+  if (!referenceImage) throw new Error('需要先上传或拖入参考图')
+  if (referenceImage.startsWith('http://') || referenceImage.startsWith('https://')) return referenceImage
+  const { mime, bytes } = decodeImageDataUrl(referenceImage)
+  const form = new FormData()
+  form.set('reqtype', 'fileupload')
+  form.set('time', '1h')
+  form.set('fileToUpload', new Blob([bytes], { type: mime }), `reference.${imageExtension(mime)}`)
+  const response = await fetch(AGNES_LITTERBOX_UPLOAD_URL, {
+    method: 'POST',
+    body: form,
+  })
+  const text = await response.text()
+  if (!response.ok || !text.trim().startsWith('http')) throw new Error(`上传 Agnes 参考图失败: HTTP ${response.status} ${text}`)
+  return text.trim()
+}
+
+function decodeImageDataUrl(dataUrl) {
+  const match = /^data:([^;,]+)(;base64)?,(.+)$/.exec(String(dataUrl || ''))
+  if (!match) throw new Error('参考图必须是 data URL 或 HTTP 图片地址')
+  return {
+    mime: match[1],
+    bytes: match[2] ? Buffer.from(match[3], 'base64') : Buffer.from(decodeURIComponent(match[3])),
+  }
+}
+
+function imageExtension(mime) {
+  if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg'
+  if (mime.includes('webp')) return 'webp'
+  if (mime.includes('gif')) return 'gif'
+  return 'png'
 }
 
 function collectImageOutputs(payload) {

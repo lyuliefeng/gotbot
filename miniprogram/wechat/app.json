@@ -1,5 +1,9 @@
 {
   "pages": [
+    "pages/learning/index",
+    "pages/materials/index",
+    "pages/realtime-scan/index",
+    "pages/profile/index",
     "pages/workspace/index",
     "pages/assets/index",
     "pages/tools/index",
@@ -8,10 +12,15 @@
     "pages/about/index"
   ],
   "window": {
-    "navigationBarTitleText": "道听徒说",
+    "navigationBarTitleText": "问课本",
     "navigationBarBackgroundColor": "#f3f6fb",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#f3f6fb"
+  },
+  "permission": {
+    "scope.camera": {
+      "desc": "用于实时扫描课本、试卷和手写题，生成讲解与答题建议"
+    }
   },
   "tabBar": {
     "color": "#64748b",
@@ -19,10 +28,10 @@
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/workspace/index", "text": "创作" },
-      { "pagePath": "pages/assets/index", "text": "资产" },
-      { "pagePath": "pages/tools/index", "text": "工具" },
-      { "pagePath": "pages/settings/index", "text": "设置" }
+      { "pagePath": "pages/learning/index", "text": "学习" },
+      { "pagePath": "pages/materials/index", "text": "教材" },
+      { "pagePath": "pages/realtime-scan/index", "text": "视频答题" },
+      { "pagePath": "pages/profile/index", "text": "我的" }
     ]
   },
   "sitemapLocation": "sitemap.json",

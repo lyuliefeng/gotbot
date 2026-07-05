@@ -205,6 +205,26 @@
   word-break: break-word;
 }
 
+.model-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.model-mode-control {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-shrink: 0;
+}
+
+.model-mode-label {
+  color: #0f766e;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
 .small-textarea {
   height: 132rpx;
 }

@@ -59,13 +59,14 @@ const videoFrameN = ref(10)
 const actionGuidance = ref('')
 const facialExpression = ref('natural')
 const selectedModelId = ref('')
-const selectedTextModelId = ref('')
 const referenceImage = ref('')
 const currentTask = ref<GenerationTask | null>(null)
 const selectedAsset = ref<GeneratedAsset | null>(null)
 const generating = ref(false)
 const generateCooldown = ref(false)
 const promptModalOpen = ref(false)
+const toolPickerOpen = ref(false)
+const activeToolGroupId = ref(toolGroups[0]?.id ?? '')
 const libraryOpen = ref(false)
 const exportOpen = ref(false)
 const threeDPreviewOpen = ref<ThreeDStylePreset | null>(null)
@@ -87,6 +88,7 @@ const extraOptions = reactive<Record<string, string | number>>({})
 const retryNotice = ref('')
 const generationError = ref('')
 const translatingPrompt = ref(false)
+const polishingNegativePrompt = ref(false)
 const referenceInput = ref<HTMLInputElement | null>(null)
 const resizeModeOptions = ['just-resize', 'crop-resize', 'resize-fill'] as const
 const iconBackgroundOptions = ['transparent', 'rounded', 'solid'] as const
@@ -103,6 +105,9 @@ type SizePreset = {
 
 const currentModeLabel = computed(() => modeLabels[mode.value])
 const activeTool = computed<ToolEntry | undefined>(() => findToolEntry(activeToolId.value))
+const activeToolGroup = computed(() => toolGroups.find((group) => group.id === activeToolGroupId.value) ?? toolGroups[0])
+const activeToolGroupTools = computed(() => activeToolGroup.value?.tools ?? [])
+const currentToolGroup = computed(() => toolGroups.find((group) => group.tools.some((tool) => tool.id === activeToolId.value)))
 const workspaceTitle = computed(() => activeTool.value?.title ?? `${currentModeLabel.value}工作台`)
 const workspaceSubtitle = computed(() => activeTool.value?.subtitle ?? modeDescriptionFallback.value)
 const activeToolControls = computed(() => activeTool.value?.extraControls ?? [])
@@ -148,7 +153,13 @@ const isVideoMode = computed(() => mode.value === 'txt2video' || mode.value === 
 const availableGenerationModels = computed(() => (isVideoMode.value ? store.videoModels : store.imageModels))
 const defaultModel = computed(() => (isVideoMode.value ? store.primaryVideoModel : store.defaultImageModel))
 const selectedModel = computed(() => availableGenerationModels.value.find((model) => model.id === selectedModelId.value) ?? defaultModel.value)
-const selectedTextModel = computed(() => store.textModels.find((model) => model.id === selectedTextModelId.value) ?? store.primaryTextModel)
+const textAutoRouteSummary = computed(() => {
+  const routes = store.textAutoRouteProfiles
+  if (!routes.length) return '未配置文本模型'
+  const primary = routes[0]
+  const routeCount = routes.length > 1 ? ` · auto ${routes.length} 路` : ' · auto'
+  return `${primary.model || primary.name}${routeCount}`
+})
 type PromptCategoryOption = {
   value: string
   label: string
@@ -190,6 +201,21 @@ const minDimension = computed(() => (mode.value === 'icon' ? 16 : 128))
 const videoDurationFrames = computed(() => Math.max(9, Math.round(videoDuration.value * videoFrameRate.value / 8) * 8 + 1))
 const videoNumFrames = computed(() => (videoFrameMode.value === 'eight-n-plus-one' ? videoFrameN.value * 8 + 1 : videoDurationFrames.value))
 const videoEstimatedSeconds = computed(() => (videoNumFrames.value / Math.max(1, videoFrameRate.value)).toFixed(1).replace(/\.0$/, ''))
+const referenceSummary = computed(() => (referenceImage.value ? '已载入参考图' : referenceRequired.value ? '必须上传' : '可选'))
+const previewSummary = computed(() => (generationError.value ? '失败' : resultCount.value ? `${resultCount.value} 个结果` : generating.value ? '生成中' : '待生成'))
+const generationParamsSummary = computed(() => selectedModel.value?.name ?? '未选择模型')
+const outputSizeSummary = computed(() => `${width.value} × ${height.value}`)
+const generationControlSummary = computed(() => `${batchSize.value} 张 · ${steps.value} 步`)
+const modeSpecificSummary = computed(() => {
+  if (isVideoMode.value) return `${videoNumFrames.value} 帧 · ${videoEstimatedSeconds.value}s`
+  if (mode.value === 'txt2img') return `创意 ${creativity.value} · 细节 ${detailLevel.value}`
+  if (mode.value === 'img2img') return `强度 ${imageStrength.value} · 姿态 ${poseAdjustment.value}`
+  if (mode.value === '3d') return `立体感 ${depthStrength.value}`
+  if (mode.value === 'gif') return `${gifDuration.value}s`
+  if (mode.value === 'icon') return iconBackground.value === 'transparent' ? '透明底' : iconBackground.value === 'rounded' ? '圆角底' : '纯色底'
+  return currentModeLabel.value
+})
+const toolParamsSummary = computed(() => (activeToolControls.value.length ? `${activeToolControls.value.length} 项` : '无额外参数'))
 const availableExportFormatOptions = computed(() => getExportFormatOptions(actionTask.value?.mode ?? mode.value))
 const availableIcoExportSizes = computed(() => {
   const maxSide = Math.max(16, Math.min(actionAsset.value?.width ?? width.value, actionAsset.value?.height ?? height.value))
@@ -369,12 +395,12 @@ function applyRouteModeOptions(options: RouteModeOptions): void {
 
 onMounted(() => {
   selectedModelId.value = defaultModel.value?.id ?? ''
-  selectedTextModelId.value = selectedTextModel.value?.id ?? ''
   mode.value = store.resolveMode(routeString('mode') || 'txt2img')
   store.setMode(mode.value)
   const toolId = routeString('tool')
   const selectedTool = findToolEntry(toolId) ?? defaultToolForMode(mode.value)
   activeToolId.value = selectedTool?.id ?? ''
+  syncActiveToolGroup(activeToolId.value)
   if (selectedTool) mode.value = selectedTool.mode
   applyToolControlDefaults(selectedTool)
   const queryPrompt = routeString('prompt')
@@ -457,6 +483,16 @@ function applyToolControlDefaults(tool: ToolEntry | undefined): void {
   }
 }
 
+function syncActiveToolGroup(toolId = activeToolId.value): void {
+  const group = toolGroups.find((item) => item.tools.some((tool) => tool.id === toolId))
+  activeToolGroupId.value = group?.id ?? toolGroups[0]?.id ?? ''
+}
+
+function openToolPicker(): void {
+  syncActiveToolGroup()
+  toolPickerOpen.value = true
+}
+
 function applyToolControlOverrides(options: RouteModeOptions): void {
   for (const control of activeToolControls.value) {
     const value = options[control.key]
@@ -481,6 +517,7 @@ function setMode(next: GenerationMode): void {
 
 function selectTool(tool: ToolEntry): void {
   activeToolId.value = tool.id
+  syncActiveToolGroup(tool.id)
   mode.value = tool.mode
   store.setMode(tool.mode)
   applyModeDefaults(tool.mode)
@@ -502,6 +539,7 @@ function selectTool(tool: ToolEntry): void {
   currentTask.value = null
   selectedAsset.value = null
   generationError.value = ''
+  toolPickerOpen.value = false
   store.notify(`已切换到工具：${tool.title}`)
 }
 
@@ -571,11 +609,36 @@ async function polishPrompt(): Promise<void> {
         style: style.value,
         task: isVideoMode.value ? 'video-prompt' : 'polish',
       },
-      selectedTextModelId.value,
     )
     prompt.value = result.prompt
   } catch (error) {
     store.notify(error instanceof Error ? error.message : '润色提示词失败', 'error')
+  }
+}
+
+async function polishNegativePrompt(): Promise<void> {
+  const source = negativePrompt.value.trim()
+  if (!source) {
+    negativePrompt.value = activeTool.value?.negativeSeed ?? '低清晰度、变形、文字水印、错误构图'
+    store.notify('已填入基础反向提示词')
+    return
+  }
+
+  polishingNegativePrompt.value = true
+  try {
+    const result = await store.polishPrompt(
+      {
+        prompt: source,
+        modeLabel: `${currentModeLabel.value}反向提示词`,
+        style: '反向约束',
+        task: 'negative-prompt',
+      },
+    )
+    negativePrompt.value = result.prompt
+  } catch (error) {
+    store.notify(error instanceof Error ? error.message : '润色反向提示词失败', 'error')
+  } finally {
+    polishingNegativePrompt.value = false
   }
 }
 
@@ -593,7 +656,6 @@ async function translateCurrentPrompt(): Promise<void> {
         modeLabel: currentModeLabel.value,
         style: style.value,
       },
-      selectedTextModelId.value,
     )
     prompt.value = result.prompt
   } catch (error) {
@@ -825,7 +887,7 @@ function handlePaste(event: ClipboardEvent): void {
   const file = Array.from(event.clipboardData?.files ?? []).find((item) => item.type.startsWith('image/'))
   if (!file) return
   event.preventDefault()
-  setMode('img2img')
+  setMode(isVideoMode.value ? 'img2video' : 'img2img')
   loadReferenceFile(file)
 }
 
@@ -874,6 +936,8 @@ async function downloadSelected(): Promise<void> {
   if (isIconExport.value) {
     if (iconExportKind.value === 'png') {
       await store.downloadAsset(asset, 'png', exportScale.value, actionTask.value ?? undefined, { customTitle: iconProjectName.value })
+    } else if (iconExportKind.value === 'ico') {
+      await store.downloadIconBundle(asset, selectedIcoExportSizes.value, iconProjectName.value)
     }
     // ICO 走 downloadIconBundle（统一打包 ZIP）
     exportOpen.value = false
@@ -945,32 +1009,21 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   <div class="page-full workspace-page">
     <section class="workspace-grid">
       <aside class="workspace-pane">
-        <div v-if="showReferenceBlock" class="block">
+        <div class="block">
           <div class="title-row">
-            <strong>选择工具</strong>
+            <strong>创作入口</strong>
             <span>{{ currentModeLabel }}</span>
           </div>
-          <div class="tool-picker">
-            <div v-for="group in toolGroups" :key="group.id" class="tool-picker-group">
-              <p class="tool-picker-group-name">{{ group.name }}</p>
-              <div class="tool-grid">
-                <button
-                  v-for="tool in group.tools"
-                  :key="tool.id"
-                  class="select-card tool-pick-card"
-                  :class="{ active: activeToolId === tool.id }"
-                  type="button"
-                  @click="selectTool(tool)"
-                >
-                  <span class="tool-pick-icon">
-                    <component :is="resolveToolIcon(tool.icon)" :size="14" />
-                  </span>
-                  <span>{{ tool.title }}</span>
-                  <small>{{ tool.subtitle ?? modeLabels[tool.mode] }}</small>
-                </button>
-              </div>
-            </div>
-          </div>
+          <button class="tool-summary-card" type="button" @click="openToolPicker">
+            <span class="tool-summary-icon">
+              <component :is="activeTool ? resolveToolIcon(activeTool.icon) : WandSparkles" :size="18" />
+            </span>
+            <span class="tool-summary-copy">
+              <strong>{{ activeTool?.title ?? currentModeLabel }}</strong>
+              <small>{{ activeTool?.subtitle ?? modeDescriptionFallback }}</small>
+            </span>
+            <span class="tool-summary-meta">{{ currentToolGroup?.name ?? '切换' }}</span>
+          </button>
         </div>
 
         <div class="block">
@@ -1004,58 +1057,76 @@ async function chooseWorkspaceExportDir(): Promise<void> {
             </button>
           </div>
           <div class="field">
-            <label>反向提示词</label>
-            <textarea v-model="negativePrompt" rows="3" />
+            <div class="field-label-row">
+              <label for="workspace-negative-prompt">反向提示词</label>
+              <div class="btn-row mini-actions">
+                <button class="btn-soft btn-sm" type="button" :disabled="polishingNegativePrompt || !negativePrompt.trim()" @click="polishNegativePrompt">
+                  <Sparkles :size="13" />
+                  {{ polishingNegativePrompt ? '润色中...' : 'AI 润色' }}
+                </button>
+                <button class="btn-soft btn-sm" type="button" @click="negativePrompt = activeTool?.negativeSeed ?? '低清晰度、变形、文字水印、错误构图'">默认</button>
+              </div>
+            </div>
+            <textarea id="workspace-negative-prompt" v-model="negativePrompt" rows="3" />
           </div>
         </div>
 
-        <div class="block">
-          <div class="title-row">
-            <strong>参考素材</strong>
-            <span>{{ referenceRequired ? '必须上传' : '可选' }}</span>
-          </div>
-          <label class="upload-box" @dragover.prevent @drop.prevent="handleReferenceDrop">
-            <Upload :size="18" />
-            <span>{{ referenceImage ? '参考图已载入，点击替换' : '上传参考图或拖入素材' }}</span>
-            <input ref="referenceInput" type="file" accept="image/*" hidden @change="handleReference" />
-          </label>
-          <img v-if="referenceImage" class="reference-preview" :src="referenceImage" alt="参考图预览" />
-        </div>
-
-        <div class="block">
-          <div class="title-row">
-            <strong>风格预设</strong>
-            <span>可切换</span>
-          </div>
-          <div class="chip-grid">
-            <button v-for="item in stylePresets" :key="item" class="chip-button" :class="{ active: style === item }" type="button" @click="style = item">
-              {{ item }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="mode === '3d'" class="block three-d-reference-block">
-          <div class="title-row">
-            <strong>3D 风格参考</strong>
-            <span>{{ threeDStylePresets.length }} 组</span>
-          </div>
-          <div class="three-d-reference-list">
-            <button
-              v-for="item in threeDStylePresets"
-              :key="item.id"
-              class="three-d-reference-card"
-              type="button"
-              :aria-label="`查看${item.name}`"
-              @click="threeDPreviewOpen = item"
-            >
-              <img :src="item.preview" :alt="`${item.name} 参考图`" />
-              <span>
-                <strong>{{ item.name }}</strong>
-                <small>{{ item.tone }} · 立体感 {{ item.depthStrength }}</small>
+        <details v-if="showReferenceBlock" class="workspace-fold-card reference-fold-card">
+          <summary>
+            <span><strong>参考素材</strong><small>方形上传 / 拖入</small></span>
+            <b>{{ referenceSummary }}</b>
+          </summary>
+          <div class="fold-content">
+            <label class="reference-square" @dragover.prevent @drop.prevent="handleReferenceDrop">
+              <img v-if="referenceImage" :src="referenceImage" alt="参考图预览" />
+              <span v-else class="reference-square-icon">
+                <Upload :size="22" />
               </span>
-            </button>
+              <strong>{{ referenceImage ? '点击替换参考图' : '上传参考图' }}</strong>
+              <small>{{ referenceRequired ? '当前工具必须上传参考图' : '可选，支持拖入图片' }}</small>
+              <input ref="referenceInput" type="file" accept="image/*" hidden @change="handleReference" />
+            </label>
           </div>
-        </div>
+        </details>
+
+        <details class="workspace-fold-card">
+          <summary>
+            <span><strong>风格预设</strong><small>点击后展开选择</small></span>
+            <b>{{ style }}</b>
+          </summary>
+          <div class="fold-content">
+            <div class="chip-grid">
+              <button v-for="item in stylePresets" :key="item" class="chip-button" :class="{ active: style === item }" type="button" @click="style = item">
+                {{ item }}
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <details v-if="mode === '3d'" class="workspace-fold-card three-d-reference-block">
+          <summary>
+            <span><strong>3D 风格参考</strong><small>点击查看预览</small></span>
+            <b>{{ threeDStylePresets.length }} 组</b>
+          </summary>
+          <div class="fold-content">
+            <div class="three-d-reference-list">
+              <button
+                v-for="item in threeDStylePresets"
+                :key="item.id"
+                class="three-d-reference-card"
+                type="button"
+                :aria-label="`查看${item.name}`"
+                @click="threeDPreviewOpen = item"
+              >
+                <img :src="item.preview" :alt="`${item.name} 参考图`" />
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ item.tone }} · 立体感 {{ item.depthStrength }}</small>
+                </span>
+              </button>
+            </div>
+          </div>
+        </details>
       </aside>
 
       <section class="workspace-center">
@@ -1067,388 +1138,396 @@ async function chooseWorkspaceExportDir(): Promise<void> {
           <span v-if="recommendedSizeLabel" class="chip">推荐 {{ recommendedSizeLabel }}</span>
         </div>
 
-        <div class="flow-row">
-          <span class="active">1 输入</span>
-          <span>2 参数</span>
-          <span :class="{ active: generating }">3 生成</span>
-          <span :class="{ active: selectedAsset }">4 导出</span>
-        </div>
-
-        <div class="result-card">
-          <div class="result-head">
-            <div>
-              <h1>生成结果预览</h1>
-              <p class="muted">请先在设置中配置真实图像/视频模型；生成会由 Electron 命令接管。</p>
-            </div>
-            <span class="chip accent">{{ resultCount }} 个结果</span>
-          </div>
-          <div class="stage">
-            <div v-if="generating" class="generating">
-              <div class="mode-preview" :class="`mode-preview-${previewMode}`">
-                <template v-if="previewMode === 'gif'">
-                  <div class="gif-preview-strip">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
+        <details class="workspace-fold-card result-fold-card" open>
+          <summary>
+            <span><strong>生成预览</strong><small>展开查看结果画布和导出操作</small></span>
+            <b>{{ previewSummary }}</b>
+          </summary>
+          <div class="fold-content result-fold-content">
+            <div class="result-card">
+              <div class="stage">
+                <div v-if="generating" class="generating">
+                  <div class="mode-preview" :class="`mode-preview-${previewMode}`">
+                    <template v-if="previewMode === 'gif'">
+                      <div class="gif-preview-strip">
+                        <span />
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                      <strong>GIF</strong>
+                    </template>
+                    <template v-else-if="previewMode === '3d'">
+                      <div class="three-d-preview-scene" aria-hidden="true">
+                        <span class="three-d-preview-cube">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      </div>
+                      <strong>3D</strong>
+                    </template>
+                    <div v-else class="media-preview-shape" :class="isVideoMode ? 'media-preview-video' : 'media-preview-image'">
+                      <span class="media-sun" />
+                      <span class="media-mountain media-mountain-a" />
+                      <span class="media-mountain media-mountain-b" />
+                      <span class="media-play" />
+                      <span class="media-film-dots"><i /><i /><i /><i /></span>
+                      <strong>{{ isVideoMode ? 'VIDEO' : 'IMAGE' }}</strong>
+                    </div>
                   </div>
-                  <strong>GIF</strong>
-                </template>
-                <template v-else-if="previewMode === '3d'">
-                  <div class="three-d-preview-scene" aria-hidden="true">
-                    <span class="three-d-preview-cube">
-                      <i />
-                      <i />
-                      <i />
+                  <strong>正在调用生成流程...</strong>
+                  <p class="muted">校验提示词、组合参数并写入资产库</p>
+                </div>
+                <div v-else-if="currentAssets.length" class="samples">
+                  <button
+                    v-for="asset in currentAssets"
+                    :key="asset.id"
+                    class="sample"
+                    :class="{ selected: selectedAsset?.id === asset.id }"
+                    type="button"
+                    @click="selectedAsset = asset"
+                  >
+                    <span
+                      class="sample-media"
+                      :class="{ 'sample-media-gif': isGifAsset(asset), 'sample-media-3d': isThreeDAsset(asset) }"
+                    >
+                      <video v-if="asset.mediaType === 'video' || asset.format === 'mp4'" :src="asset.remoteUrl ?? asset.dataUrl" muted controls playsinline />
+                      <img v-else :src="asset.dataUrl" :alt="asset.title" />
+                      <span v-if="isGifAsset(asset)" class="preview-badge">GIF</span>
+                      <span v-if="isThreeDAsset(asset)" class="preview-badge">3D</span>
+                      <span v-if="asset.mediaType === 'video' || asset.format === 'mp4'" class="preview-badge">MP4</span>
                     </span>
+                    <span>{{ asset.title }}</span>
+                  </button>
+                </div>
+                <div v-else-if="generationError" class="empty-stage error-stage">
+                  <WandSparkles :size="42" />
+                  <strong>生成失败</strong>
+                  <p>{{ generationError }}</p>
+                  <button class="btn-soft" type="button" @click="generate">重新生成</button>
+                </div>
+                <div v-else class="empty-stage">
+                  <div
+                    v-if="mode === 'gif' || mode === '3d'"
+                    class="mode-preview mode-preview-idle"
+                    :class="`mode-preview-${mode}`"
+                  >
+                    <template v-if="mode === 'gif'">
+                      <div class="gif-preview-strip">
+                        <span />
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                      <strong>GIF</strong>
+                    </template>
+                    <template v-else>
+                      <div class="three-d-preview-scene" aria-hidden="true">
+                        <span class="three-d-preview-cube">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      </div>
+                      <strong>3D</strong>
+                    </template>
                   </div>
-                  <strong>3D</strong>
-                </template>
-                <div v-else class="media-preview-shape" :class="isVideoMode ? 'media-preview-video' : 'media-preview-image'">
-                  <span class="media-sun" />
-                  <span class="media-mountain media-mountain-a" />
-                  <span class="media-mountain media-mountain-b" />
-                  <span class="media-play" />
-                  <span class="media-film-dots"><i /><i /><i /><i /></span>
-                  <strong>{{ isVideoMode ? 'VIDEO' : 'IMAGE' }}</strong>
+                  <div class="media-preview-shape mode-preview-idle" :class="isVideoMode ? 'media-preview-video' : 'media-preview-image'">
+                    <span class="media-sun" />
+                    <span class="media-mountain media-mountain-a" />
+                    <span class="media-mountain media-mountain-b" />
+                    <span class="media-play" />
+                    <span class="media-film-dots"><i /><i /><i /><i /></span>
+                    <strong>{{ isVideoMode ? 'VIDEO' : 'IMAGE' }}</strong>
+                  </div>
+                  <strong>准备生成</strong>
+                  <p>输入提示词后点击“开始生成”。</p>
                 </div>
               </div>
-              <strong>正在调用生成流程...</strong>
-              <p class="muted">校验提示词、组合参数并写入资产库</p>
-            </div>
-            <div v-else-if="currentAssets.length" class="samples">
-              <button
-                v-for="asset in currentAssets"
-                :key="asset.id"
-                class="sample"
-                :class="{ selected: selectedAsset?.id === asset.id }"
-                type="button"
-                @click="selectedAsset = asset"
-              >
-                <span
-                  class="sample-media"
-                  :class="{ 'sample-media-gif': isGifAsset(asset), 'sample-media-3d': isThreeDAsset(asset) }"
-                >
-                  <video v-if="asset.mediaType === 'video' || asset.format === 'mp4'" :src="asset.remoteUrl ?? asset.dataUrl" muted controls playsinline />
-                  <img v-else :src="asset.dataUrl" :alt="asset.title" />
-                  <span v-if="isGifAsset(asset)" class="preview-badge">GIF</span>
-                  <span v-if="isThreeDAsset(asset)" class="preview-badge">3D</span>
-                  <span v-if="asset.mediaType === 'video' || asset.format === 'mp4'" class="preview-badge">MP4</span>
-                </span>
-                <span>{{ asset.title }}</span>
-              </button>
-            </div>
-            <div v-else-if="generationError" class="empty-stage error-stage">
-              <WandSparkles :size="42" />
-              <strong>生成失败</strong>
-              <p>{{ generationError }}</p>
-              <button class="btn-soft" type="button" @click="generate">重新生成</button>
-            </div>
-            <div v-else class="empty-stage">
-              <div
-                v-if="mode === 'gif' || mode === '3d'"
-                class="mode-preview mode-preview-idle"
-                :class="`mode-preview-${mode}`"
-              >
-                <template v-if="mode === 'gif'">
-                  <div class="gif-preview-strip">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <strong>GIF</strong>
-                </template>
-                <template v-else>
-                  <div class="three-d-preview-scene" aria-hidden="true">
-                    <span class="three-d-preview-cube">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  </div>
-                  <strong>3D</strong>
-                </template>
-              </div>
-              <div class="media-preview-shape mode-preview-idle" :class="isVideoMode ? 'media-preview-video' : 'media-preview-image'">
-                <span class="media-sun" />
-                <span class="media-mountain media-mountain-a" />
-                <span class="media-mountain media-mountain-b" />
-                <span class="media-play" />
-                <span class="media-film-dots"><i /><i /><i /><i /></span>
-                <strong>{{ isVideoMode ? 'VIDEO' : 'IMAGE' }}</strong>
-              </div>
-              <strong>准备生成</strong>
-              <p>输入提示词后点击“开始生成”。</p>
-            </div>
-          </div>
-          <div class="result-foot">
-            <div>
-              <strong>{{ selectedAsset ? `已选择：${selectedAsset.title}` : '尚未选择结果' }}</strong>
-              <p class="muted">{{ width }} x {{ height }} · {{ style }} · {{ selectedModel?.name }}</p>
-            </div>
-            <div class="btn-row">
-              <button class="btn-soft" type="button" @click="copySelectedResult">
-                <Copy :size="15" />
-                {{ selectedAsset?.mediaType === 'video' || selectedAsset?.format === 'mp4' ? '复制视频链接' : '复制结果图' }}
-              </button>
-              <button class="btn-soft" type="button" :disabled="selectedAsset?.mediaType === 'video' || selectedAsset?.format === 'mp4'" @click="reuseSelectedAsReference">作为参考图</button>
-              <button class="btn-primary" type="button" @click="openExportDialog">
-                <Download :size="15" />
-                导出
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <aside class="workspace-pane">
-        <div class="block">
-          <div class="title-row">
-            <strong>参数与导出</strong>
-            <span>{{ currentModeLabel }}</span>
-          </div>
-          <div class="field">
-            <label for="workspace-image-model">{{ isVideoMode ? '视频模型' : '图像模型' }}</label>
-            <select id="workspace-image-model" v-model="selectedModelId">
-              <option v-for="model in availableGenerationModels" :key="model.id" :value="model.id">{{ model.name }} / {{ model.model }}</option>
-            </select>
-          </div>
-          <p v-if="isVideoMode" class="field-note">Agnes 视频会创建异步任务并轮询结果；文生视频仅使用提示词，图生视频会临时上传参考图。</p>
-          <div class="field">
-            <label for="workspace-text-model">文本润色模型</label>
-            <select id="workspace-text-model" v-model="selectedTextModelId">
-              <option v-for="model in store.textModels" :key="model.id" :value="model.id">{{ model.name }} / {{ model.model || '未配置模型 ID' }}</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="block">
-          <div class="title-row">
-            <strong>输出尺寸</strong>
-            <span>{{ width }} x {{ height }}</span>
-          </div>
-          <template v-if="mode === 'icon'">
-            <div class="icon-size-grid">
-              <div
-                v-for="preset in sizePresets"
-                :key="preset.id"
-                class="icon-size-card"
-              >
-                <strong>{{ preset.name }}</strong>
-                <small>{{ preset.hint }}</small>
-              </div>
-            </div>
-            <p class="field-note">ICON 模式固定生成 1024×1024 母图，导出时可选择各尺寸打包下载。</p>
-          </template>
-          <template v-else>
-            <div class="chip-grid">
-              <button
-                v-for="preset in sizePresets"
-                :key="preset.id"
-                class="chip-button"
-                :class="{ active: isSizePresetActive(preset) }"
-                type="button"
-                @click="applyAspect(preset)"
-              >
-                {{ preset.name }}
-              </button>
-            </div>
-            <div class="param-two">
-              <div class="field">
-                <label for="workspace-width">宽度</label>
-                <input id="workspace-width" v-model.number="width" type="number" :min="minDimension" max="4096" />
-              </div>
-              <div class="field">
-                <label for="workspace-height">高度</label>
-                <input id="workspace-height" v-model.number="height" type="number" :min="minDimension" max="4096" />
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <div class="block">
-          <div class="title-row">
-            <strong>生成控制</strong>
-            <span>本地保存</span>
-          </div>
-          <div class="range-row"><span>批量</span><input v-model.number="batchSize" type="range" min="1" :max="isVideoMode ? 1 : 4" /><b>{{ batchSize }}</b></div>
-          <div class="range-row"><span>步数</span><input v-model.number="steps" type="range" min="1" max="80" /><b>{{ steps }}</b></div>
-          <div class="field">
-            <label>Seed</label>
-            <input v-model.number="seed" type="number" />
-          </div>
-        </div>
-
-        <div class="block">
-          <div class="title-row">
-            <strong>模式专属</strong>
-            <span>{{ currentModeLabel }}</span>
-          </div>
-          <template v-if="mode === 'txt2img'">
-            <div class="range-row"><label for="workspace-creativity">创意度</label><input id="workspace-creativity" v-model.number="creativity" type="range" min="0" max="100" /><b>{{ creativity }}</b></div>
-            <div class="range-row"><label for="workspace-detail-level">细节</label><input id="workspace-detail-level" v-model.number="detailLevel" type="range" min="0" max="100" /><b>{{ detailLevel }}</b></div>
-            <div class="range-row"><label for="workspace-pose-adjustment">姿态微调</label><input id="workspace-pose-adjustment" v-model.number="poseAdjustment" type="range" min="0" max="100" /><b>{{ poseAdjustment }}</b></div>
-            <div class="field">
-              <label for="workspace-line-control">线条控制</label>
-              <select id="workspace-line-control" v-model="lineControl">
-                <option value="natural">自然线条</option>
-                <option value="clean-contour">清晰轮廓</option>
-                <option value="soft-linework">柔和线稿</option>
-                <option value="bold-linework">粗线条</option>
-                <option value="minimal-lines">极简线条</option>
-              </select>
-            </div>
-          </template>
-          <template v-else-if="mode === 'img2img'">
-            <div class="range-row"><label for="workspace-image-strength">图片强度</label><input id="workspace-image-strength" v-model.number="imageStrength" type="range" min="0" max="100" /><b>{{ imageStrength }}</b></div>
-            <div class="range-row"><label for="workspace-img-pose-adjustment">姿态微调</label><input id="workspace-img-pose-adjustment" v-model.number="poseAdjustment" type="range" min="0" max="100" /><b>{{ poseAdjustment }}</b></div>
-            <div class="field">
-              <label for="workspace-img-line-control">线条控制</label>
-              <select id="workspace-img-line-control" v-model="lineControl">
-                <option value="natural">自然线条</option>
-                <option value="clean-contour">清晰轮廓</option>
-                <option value="soft-linework">柔和线稿</option>
-                <option value="bold-linework">粗线条</option>
-                <option value="minimal-lines">极简线条</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="workspace-resize-mode">Resize Mode</label>
-              <select id="workspace-resize-mode" v-model="resizeMode">
-                <option value="just-resize">Just resize</option>
-                <option value="crop-resize">Crop and resize</option>
-                <option value="resize-fill">Resize and fill</option>
-              </select>
-            </div>
-          </template>
-          <template v-else-if="isVideoMode">
-            <div class="segmented-row">
-              <button class="chip-button" :class="{ active: videoFrameMode === 'duration' }" type="button" @click="videoFrameMode = 'duration'">按时长</button>
-              <button class="chip-button" :class="{ active: videoFrameMode === 'eight-n-plus-one' }" type="button" @click="videoFrameMode = 'eight-n-plus-one'">8n + 1</button>
-            </div>
-            <div v-if="videoFrameMode === 'duration'" class="chip-grid">
-              <button class="chip-button" :class="{ active: videoDuration === 3 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 3">约 3s</button>
-              <button class="chip-button" :class="{ active: videoDuration === 5 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 5">约 5s</button>
-              <button class="chip-button" :class="{ active: videoDuration === 10 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 10">约 10s</button>
-              <button class="chip-button" :class="{ active: videoDuration === 15 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 15">约 15s</button>
-            </div>
-            <div v-if="videoFrameMode === 'eight-n-plus-one'" class="chip-grid">
-              <button
-                v-for="preset in eightNFramePresets"
-                :key="preset.n"
-                class="chip-button"
-                :class="{ active: videoFrameN === preset.n }"
-                type="button"
-                @click="videoFrameN = preset.n"
-              >
-                {{ preset.label }} · {{ preset.seconds }}
-              </button>
-            </div>
-            <div class="range-row"><label for="workspace-video-fps">帧率</label><input id="workspace-video-fps" v-model.number="videoFrameRate" type="range" min="1" max="60" /><b>{{ videoFrameRate }}fps</b></div>
-            <div v-if="videoFrameMode === 'eight-n-plus-one'" class="range-row"><label for="workspace-video-frame-n">n 值</label><input id="workspace-video-frame-n" v-model.number="videoFrameN" type="range" min="1" max="55" /><b>{{ videoFrameN }}</b></div>
-            <div class="field">
-              <label for="workspace-action-guidance">动作指导</label>
-              <textarea id="workspace-action-guidance" v-model="actionGuidance" rows="2" placeholder="例如：先抬头看向镜头，再自然微笑，最后轻微向右转头" />
-            </div>
-            <div class="field">
-              <label for="workspace-facial-expression">面部表情</label>
-              <select id="workspace-facial-expression" v-model="facialExpression">
-                <option value="natural">自然</option>
-                <option value="subtle-smile">微笑</option>
-                <option value="confident">自信</option>
-                <option value="calm">平静</option>
-                <option value="surprised">惊讶</option>
-                <option value="talking">说话口型</option>
-              </select>
-            </div>
-            <p class="field-note">实际提交 {{ videoNumFrames }} 帧，预计 {{ videoEstimatedSeconds }}s，{{ videoFrameMode === 'eight-n-plus-one' ? `按 8 × ${videoFrameN} + 1 计算` : `由时长换算为 8n + 1` }}。</p>
-          </template>
-          <template v-else-if="mode === 'icon'">
-            <div class="chip-grid">
-              <button class="chip-button" :class="{ active: iconBackground === 'transparent' }" type="button" @click="iconBackground = 'transparent'">透明底</button>
-              <button class="chip-button" :class="{ active: iconBackground === 'rounded' }" type="button" @click="iconBackground = 'rounded'">圆角底</button>
-              <button class="chip-button" :class="{ active: iconBackground === 'solid' }" type="button" @click="iconBackground = 'solid'">纯色底</button>
-            </div>
-          </template>
-          <template v-else-if="mode === '3d'">
-            <div class="range-row"><label for="workspace-depth-strength">立体感</label><input id="workspace-depth-strength" v-model.number="depthStrength" type="range" min="0" max="100" /><b>{{ depthStrength }}</b></div>
-          </template>
-          <template v-else-if="mode === 'gif'">
-            <div class="range-row"><label for="workspace-gif-duration">时长</label><input id="workspace-gif-duration" v-model.number="gifDuration" type="range" min="2" max="8" /><b>{{ gifDuration }}s</b></div>
-          </template>
-          <template v-else>
-            <p class="muted">封面图使用输出尺寸和风格预设控制平台效果。</p>
-          </template>
-        </div>
-
-        <div v-if="activeToolControls.length" class="block tool-controls-block">
-          <div class="title-row">
-            <strong>工具参数</strong>
-            <span>{{ activeTool?.title }}</span>
-          </div>
-          <div v-for="control in activeToolControls" :key="control.key" class="tool-control">
-            <template v-if="control.type === 'range'">
-              <div class="range-row">
-                <label :for="`tool-control-${control.key}`">{{ control.label }}</label>
-                <input
-                  :id="`tool-control-${control.key}`"
-                  v-model.number="extraOptions[control.key]"
-                  type="range"
-                  :min="control.min ?? 0"
-                  :max="control.max ?? 100"
-                  :step="control.step ?? 1"
-                />
-                <b>{{ extraOptions[control.key] }}{{ control.unit ?? '' }}</b>
-              </div>
-            </template>
-            <template v-else-if="control.type === 'select'">
-              <div class="field">
-                <label :for="`tool-control-${control.key}`">{{ control.label }}</label>
-                <select :id="`tool-control-${control.key}`" v-model="extraOptions[control.key]">
-                  <option v-for="option in control.options" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </div>
-            </template>
-            <template v-else-if="control.type === 'chips'">
-              <div class="field">
-                <label>{{ control.label }}</label>
-                <div class="chip-grid">
-                  <button
-                    v-for="option in control.options"
-                    :key="option.value"
-                    class="chip-button"
-                    :class="{ active: extraOptions[control.key] === option.value }"
-                    type="button"
-                    :aria-label="`${control.label} ${option.label}`"
-                    @click="extraOptions[control.key] = option.value"
-                  >
-                    {{ option.label }}
+              <div class="result-foot">
+                <div>
+                  <strong>{{ selectedAsset ? `已选择：${selectedAsset.title}` : '尚未选择结果' }}</strong>
+                  <p class="muted">{{ width }} x {{ height }} · {{ style }} · {{ selectedModel?.name }}</p>
+                </div>
+                <div class="btn-row">
+                  <button class="btn-soft" type="button" @click="copySelectedResult">
+                    <Copy :size="15" />
+                    {{ selectedAsset?.mediaType === 'video' || selectedAsset?.format === 'mp4' ? '复制视频链接' : '复制结果图' }}
+                  </button>
+                  <button class="btn-soft" type="button" :disabled="selectedAsset?.mediaType === 'video' || selectedAsset?.format === 'mp4'" @click="reuseSelectedAsReference">作为参考图</button>
+                  <button class="btn-primary" type="button" @click="openExportDialog">
+                    <Download :size="15" />
+                    导出
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <aside class="workspace-pane">
+        <details class="workspace-fold-card">
+          <summary>
+            <span><strong>生成参数</strong><small>模型与润色通道</small></span>
+            <b>{{ generationParamsSummary }}</b>
+          </summary>
+          <div class="fold-content">
+            <div class="field">
+              <label for="workspace-image-model">{{ isVideoMode ? '视频模型' : '图像模型' }}</label>
+              <select id="workspace-image-model" v-model="selectedModelId">
+                <option v-for="model in availableGenerationModels" :key="model.id" :value="model.id">{{ model.name }} / {{ model.model }}</option>
+              </select>
+            </div>
+            <p v-if="isVideoMode" class="field-note">Agnes 视频会创建异步任务并轮询结果；文生视频仅使用提示词，图生视频会临时上传参考图。</p>
+            <div class="route-info-card">
+              <span>文本生成 / AI 润色</span>
+              <strong>{{ textAutoRouteSummary }}</strong>
+              <small>正向润色、反向提示词润色和译英统一走文本模型 auto 路由；可用文本上游会按主模型与连接状态自动回退。</small>
+            </div>
+          </div>
+        </details>
+
+        <details class="workspace-fold-card">
+          <summary>
+            <span><strong>输出尺寸</strong><small>比例与像素尺寸</small></span>
+            <b>{{ outputSizeSummary }}</b>
+          </summary>
+          <div class="fold-content">
+            <template v-if="mode === 'icon'">
+              <div class="icon-size-grid">
+                <div
+                  v-for="preset in sizePresets"
+                  :key="preset.id"
+                  class="icon-size-card"
+                >
+                  <strong>{{ preset.name }}</strong>
+                  <small>{{ preset.hint }}</small>
+                </div>
+              </div>
+              <p class="field-note">ICON 模式固定生成 1024×1024 母图，导出时可选择各尺寸打包下载。</p>
             </template>
-            <p v-if="control.hint" class="field-note">{{ control.hint }}</p>
+            <template v-else>
+              <div class="chip-grid">
+                <button
+                  v-for="preset in sizePresets"
+                  :key="preset.id"
+                  class="chip-button"
+                  :class="{ active: isSizePresetActive(preset) }"
+                  type="button"
+                  @click="applyAspect(preset)"
+                >
+                  {{ preset.name }}
+                </button>
+              </div>
+              <div class="param-two">
+                <div class="field">
+                  <label for="workspace-width">宽度</label>
+                  <input id="workspace-width" v-model.number="width" type="number" :min="minDimension" max="4096" />
+                </div>
+                <div class="field">
+                  <label for="workspace-height">高度</label>
+                  <input id="workspace-height" v-model.number="height" type="number" :min="minDimension" max="4096" />
+                </div>
+              </div>
+            </template>
           </div>
-        </div>
+        </details>
 
-        <div class="block mode-flow-block">
-          <div class="title-row">
-            <strong>数据流说明</strong>
-            <span>{{ currentModeLabel }}</span>
+        <details class="workspace-fold-card">
+          <summary>
+            <span><strong>生成控制</strong><small>批量、步数、Seed</small></span>
+            <b>{{ generationControlSummary }}</b>
+          </summary>
+          <div class="fold-content">
+            <div class="range-row"><span>批量</span><input v-model.number="batchSize" type="range" min="1" :max="isVideoMode ? 1 : 4" /><b>{{ batchSize }}</b></div>
+            <div class="range-row"><span>步数</span><input v-model.number="steps" type="range" min="1" max="80" /><b>{{ steps }}</b></div>
+            <div class="field">
+              <label>Seed</label>
+              <input v-model.number="seed" type="number" />
+            </div>
           </div>
-          <p class="muted">{{ modeFlowCopy }}</p>
-        </div>
+        </details>
 
-        <div v-if="activeToolTips.length" class="block tool-tips-block">
-          <div class="title-row">
-            <strong>使用提示</strong>
-            <span>{{ activeTool?.title }}</span>
+        <details class="workspace-fold-card">
+          <summary>
+            <span><strong>模式专属</strong><small>{{ currentModeLabel }} 参数</small></span>
+            <b>{{ modeSpecificSummary }}</b>
+          </summary>
+          <div class="fold-content">
+            <template v-if="mode === 'txt2img'">
+              <div class="range-row"><label for="workspace-creativity">创意度</label><input id="workspace-creativity" v-model.number="creativity" type="range" min="0" max="100" /><b>{{ creativity }}</b></div>
+              <div class="range-row"><label for="workspace-detail-level">细节</label><input id="workspace-detail-level" v-model.number="detailLevel" type="range" min="0" max="100" /><b>{{ detailLevel }}</b></div>
+              <div class="range-row"><label for="workspace-pose-adjustment">姿态微调</label><input id="workspace-pose-adjustment" v-model.number="poseAdjustment" type="range" min="0" max="100" /><b>{{ poseAdjustment }}</b></div>
+              <div class="field">
+                <label for="workspace-line-control">线条控制</label>
+                <select id="workspace-line-control" v-model="lineControl">
+                  <option value="natural">自然线条</option>
+                  <option value="clean-contour">清晰轮廓</option>
+                  <option value="soft-linework">柔和线稿</option>
+                  <option value="bold-linework">粗线条</option>
+                  <option value="minimal-lines">极简线条</option>
+                </select>
+              </div>
+            </template>
+            <template v-else-if="mode === 'img2img'">
+              <div class="range-row"><label for="workspace-image-strength">图片强度</label><input id="workspace-image-strength" v-model.number="imageStrength" type="range" min="0" max="100" /><b>{{ imageStrength }}</b></div>
+              <div class="range-row"><label for="workspace-img-pose-adjustment">姿态微调</label><input id="workspace-img-pose-adjustment" v-model.number="poseAdjustment" type="range" min="0" max="100" /><b>{{ poseAdjustment }}</b></div>
+              <div class="field">
+                <label for="workspace-img-line-control">线条控制</label>
+                <select id="workspace-img-line-control" v-model="lineControl">
+                  <option value="natural">自然线条</option>
+                  <option value="clean-contour">清晰轮廓</option>
+                  <option value="soft-linework">柔和线稿</option>
+                  <option value="bold-linework">粗线条</option>
+                  <option value="minimal-lines">极简线条</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="workspace-resize-mode">Resize Mode</label>
+                <select id="workspace-resize-mode" v-model="resizeMode">
+                  <option value="just-resize">Just resize</option>
+                  <option value="crop-resize">Crop and resize</option>
+                  <option value="resize-fill">Resize and fill</option>
+                </select>
+              </div>
+            </template>
+            <template v-else-if="isVideoMode">
+              <div class="segmented-row">
+                <button class="chip-button" :class="{ active: videoFrameMode === 'duration' }" type="button" @click="videoFrameMode = 'duration'">按时长</button>
+                <button class="chip-button" :class="{ active: videoFrameMode === 'eight-n-plus-one' }" type="button" @click="videoFrameMode = 'eight-n-plus-one'">8n + 1</button>
+              </div>
+              <div v-if="videoFrameMode === 'duration'" class="chip-grid">
+                <button class="chip-button" :class="{ active: videoDuration === 3 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 3">约 3s</button>
+                <button class="chip-button" :class="{ active: videoDuration === 5 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 5">约 5s</button>
+                <button class="chip-button" :class="{ active: videoDuration === 10 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 10">约 10s</button>
+                <button class="chip-button" :class="{ active: videoDuration === 15 }" type="button" :disabled="videoFrameMode !== 'duration'" @click="videoDuration = 15">约 15s</button>
+              </div>
+              <div v-if="videoFrameMode === 'eight-n-plus-one'" class="chip-grid">
+                <button
+                  v-for="preset in eightNFramePresets"
+                  :key="preset.n"
+                  class="chip-button"
+                  :class="{ active: videoFrameN === preset.n }"
+                  type="button"
+                  @click="videoFrameN = preset.n"
+                >
+                  {{ preset.label }} · {{ preset.seconds }}
+                </button>
+              </div>
+              <div class="range-row"><label for="workspace-video-fps">帧率</label><input id="workspace-video-fps" v-model.number="videoFrameRate" type="range" min="1" max="60" /><b>{{ videoFrameRate }}fps</b></div>
+              <div v-if="videoFrameMode === 'eight-n-plus-one'" class="range-row"><label for="workspace-video-frame-n">n 值</label><input id="workspace-video-frame-n" v-model.number="videoFrameN" type="range" min="1" max="55" /><b>{{ videoFrameN }}</b></div>
+              <div class="field">
+                <label for="workspace-action-guidance">动作指导</label>
+                <textarea id="workspace-action-guidance" v-model="actionGuidance" rows="2" placeholder="例如：先抬头看向镜头，再自然微笑，最后轻微向右转头" />
+              </div>
+              <div class="field">
+                <label for="workspace-facial-expression">面部表情</label>
+                <select id="workspace-facial-expression" v-model="facialExpression">
+                  <option value="natural">自然</option>
+                  <option value="subtle-smile">微笑</option>
+                  <option value="confident">自信</option>
+                  <option value="calm">平静</option>
+                  <option value="surprised">惊讶</option>
+                  <option value="talking">说话口型</option>
+                </select>
+              </div>
+              <p class="field-note">实际提交 {{ videoNumFrames }} 帧，预计 {{ videoEstimatedSeconds }}s，{{ videoFrameMode === 'eight-n-plus-one' ? `按 8 × ${videoFrameN} + 1 计算` : `由时长换算为 8n + 1` }}。</p>
+            </template>
+            <template v-else-if="mode === 'icon'">
+              <div class="chip-grid">
+                <button class="chip-button" :class="{ active: iconBackground === 'transparent' }" type="button" @click="iconBackground = 'transparent'">透明底</button>
+                <button class="chip-button" :class="{ active: iconBackground === 'rounded' }" type="button" @click="iconBackground = 'rounded'">圆角底</button>
+                <button class="chip-button" :class="{ active: iconBackground === 'solid' }" type="button" @click="iconBackground = 'solid'">纯色底</button>
+              </div>
+            </template>
+            <template v-else-if="mode === '3d'">
+              <div class="range-row"><label for="workspace-depth-strength">立体感</label><input id="workspace-depth-strength" v-model.number="depthStrength" type="range" min="0" max="100" /><b>{{ depthStrength }}</b></div>
+            </template>
+            <template v-else-if="mode === 'gif'">
+              <div class="range-row"><label for="workspace-gif-duration">时长</label><input id="workspace-gif-duration" v-model.number="gifDuration" type="range" min="2" max="8" /><b>{{ gifDuration }}s</b></div>
+            </template>
+            <template v-else>
+              <p class="muted">封面图使用输出尺寸和风格预设控制平台效果。</p>
+            </template>
           </div>
-          <ul class="tool-tips">
-            <li v-for="(tip, index) in activeToolTips" :key="index">{{ tip }}</li>
-          </ul>
-        </div>
+        </details>
+
+        <details class="workspace-fold-card tool-controls-block">
+          <summary>
+            <span><strong>工具参数</strong><small>{{ activeTool?.title ?? currentModeLabel }}</small></span>
+            <b>{{ toolParamsSummary }}</b>
+          </summary>
+          <div class="fold-content">
+            <p v-if="!activeToolControls.length" class="muted">当前入口没有额外工具参数。</p>
+            <div v-for="control in activeToolControls" :key="control.key" class="tool-control">
+              <template v-if="control.type === 'range'">
+                <div class="range-row">
+                  <label :for="`tool-control-${control.key}`">{{ control.label }}</label>
+                  <input
+                    :id="`tool-control-${control.key}`"
+                    v-model.number="extraOptions[control.key]"
+                    type="range"
+                    :min="control.min ?? 0"
+                    :max="control.max ?? 100"
+                    :step="control.step ?? 1"
+                  />
+                  <b>{{ extraOptions[control.key] }}{{ control.unit ?? '' }}</b>
+                </div>
+              </template>
+              <template v-else-if="control.type === 'select'">
+                <div class="field">
+                  <label :for="`tool-control-${control.key}`">{{ control.label }}</label>
+                  <select :id="`tool-control-${control.key}`" v-model="extraOptions[control.key]">
+                    <option v-for="option in control.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+                  </select>
+                </div>
+              </template>
+              <template v-else-if="control.type === 'chips'">
+                <div class="field">
+                  <label>{{ control.label }}</label>
+                  <div class="chip-grid">
+                    <button
+                      v-for="option in control.options"
+                      :key="option.value"
+                      class="chip-button"
+                      :class="{ active: extraOptions[control.key] === option.value }"
+                      type="button"
+                      :aria-label="`${control.label} ${option.label}`"
+                      @click="extraOptions[control.key] = option.value"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
+              </template>
+              <p v-if="control.hint" class="field-note">{{ control.hint }}</p>
+            </div>
+          </div>
+        </details>
+
+        <details class="workspace-fold-card mode-flow-block">
+          <summary>
+            <span><strong>数据流说明</strong><small>当前模式流程</small></span>
+            <b>{{ currentModeLabel }}</b>
+          </summary>
+          <div class="fold-content">
+            <p class="muted">{{ modeFlowCopy }}</p>
+          </div>
+        </details>
+
+        <details v-if="activeToolTips.length" class="workspace-fold-card tool-tips-block">
+          <summary>
+            <span><strong>使用提示</strong><small>{{ activeTool?.title }}</small></span>
+            <b>{{ activeToolTips.length }} 条</b>
+          </summary>
+          <div class="fold-content">
+            <ul class="tool-tips">
+              <li v-for="(tip, index) in activeToolTips" :key="index">{{ tip }}</li>
+            </ul>
+          </div>
+        </details>
       </aside>
     </section>
 
@@ -1461,6 +1540,57 @@ async function chooseWorkspaceExportDir(): Promise<void> {
       <WandSparkles :size="17" />
       {{ generating ? '生成中...' : '开始生成' }}
     </button>
+
+    <div v-if="toolPickerOpen" class="modal-overlay" @click.self="toolPickerOpen = false">
+      <div class="modal tool-picker-modal" role="dialog" aria-modal="true" aria-labelledby="tool-picker-title">
+        <div class="modal-head">
+          <div>
+            <h2 id="tool-picker-title">选择创作入口</h2>
+            <p class="muted">文生图、图生图、封面、图标和视频入口集中在弹窗里，工作台不再被长列表撑高。</p>
+          </div>
+          <button class="btn-icon" type="button" @click="toolPickerOpen = false">×</button>
+        </div>
+        <div class="modal-body tool-picker-modal-body">
+          <div class="tool-picker compact-tool-picker">
+            <div class="tool-group-tabs" aria-label="创作入口分类">
+              <button
+                v-for="group in toolGroups"
+                :key="group.id"
+                class="tool-group-tab"
+                :class="{ active: activeToolGroupId === group.id }"
+                type="button"
+                @click="activeToolGroupId = group.id"
+              >
+                <strong>{{ group.name }}</strong>
+                <small>{{ group.tools.length }} 个</small>
+              </button>
+            </div>
+            <div class="tool-picker-group active-tool-group">
+              <p class="tool-picker-group-name">
+                <span>{{ activeToolGroup?.name }}</span>
+                <small>{{ activeToolGroupTools.length }} 个入口</small>
+              </p>
+              <div class="tool-grid">
+                <button
+                  v-for="tool in activeToolGroupTools"
+                  :key="tool.id"
+                  class="select-card tool-pick-card"
+                  :class="{ active: activeToolId === tool.id }"
+                  type="button"
+                  @click="selectTool(tool)"
+                >
+                  <span class="tool-pick-icon">
+                    <component :is="resolveToolIcon(tool.icon)" :size="14" />
+                  </span>
+                  <span>{{ tool.title }}</span>
+                  <small>{{ tool.subtitle ?? modeLabels[tool.mode] }}</small>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="promptModalOpen" class="modal-overlay" @click.self="promptModalOpen = false">
       <div class="modal prompt-modal">
@@ -1678,6 +1808,108 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   background: rgba(255, 255, 255, 0.026);
 }
 
+.workspace-fold-card {
+  margin: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025)),
+    var(--surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.workspace-fold-card + .workspace-fold-card {
+  margin-top: 10px;
+}
+
+.workspace-fold-card > summary {
+  min-height: 58px;
+  padding: 11px 13px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.workspace-fold-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.workspace-fold-card > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 160ms, border-color 160ms;
+}
+
+.workspace-fold-card[open] > summary::after {
+  transform: rotate(225deg);
+  border-color: var(--accent);
+}
+
+.workspace-fold-card > summary:hover {
+  background: var(--accent-soft);
+}
+
+.workspace-fold-card > summary span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.workspace-fold-card > summary strong {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.workspace-fold-card > summary small {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-fold-card > summary b {
+  max-width: 132px;
+  padding: 5px 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fold-content {
+  padding: 0 13px 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mini-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
 .title-row {
   display: flex;
   align-items: center;
@@ -1741,16 +1973,110 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   gap: 14px;
 }
 
+.tool-summary-card {
+  width: 100%;
+  min-height: 72px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--fg-2);
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(87, 166, 255, 0.10), rgba(46, 232, 200, 0.06)),
+    var(--surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: transform 160ms, border-color 160ms, background 160ms, box-shadow 160ms;
+}
+
+.tool-summary-card:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: var(--focus-ring);
+  transform: translateY(-1px);
+}
+
+.tool-summary-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: var(--accent-on);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-3));
+}
+
+.tool-summary-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.tool-summary-copy strong,
+.tool-summary-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-summary-copy strong {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.tool-summary-copy small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.tool-summary-meta {
+  padding: 5px 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .tool-picker-group {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .tool-picker-group-name {
+  margin: 0;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
+}
+
+.tool-picker-group-name span,
+.tool-picker-group-name small {
+  display: block;
+}
+
+.tool-picker-group-name span {
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.tool-picker-group-name small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .tool-grid {
@@ -1809,6 +2135,93 @@ async function chooseWorkspaceExportDir(): Promise<void> {
 
 .tool-pick-card.active small {
   color: var(--accent);
+}
+
+.tool-picker-modal {
+  width: min(1120px, 96vw);
+}
+
+.tool-picker-modal-body {
+  padding: 16px 18px 20px;
+}
+
+.tool-picker-modal .tool-picker {
+  gap: 10px;
+}
+
+.compact-tool-picker {
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: start;
+}
+
+.tool-group-tabs {
+  display: grid;
+  gap: 8px;
+}
+
+.tool-group-tab {
+  min-height: 52px;
+  padding: 9px 10px;
+  display: grid;
+  gap: 3px;
+  color: var(--fg-2);
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--tint);
+  transition: border-color 160ms, background 160ms, color 160ms, transform 160ms;
+}
+
+.tool-group-tab:hover,
+.tool-group-tab.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+
+.tool-group-tab strong {
+  font-size: 13px;
+}
+
+.tool-group-tab small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tool-picker-modal .tool-picker-group {
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02)),
+    var(--tint);
+}
+
+.tool-picker-modal .tool-picker-group-name {
+  min-height: 100%;
+  padding: 10px 8px;
+  display: grid;
+  align-content: center;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.tool-picker-modal .tool-grid {
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  align-content: start;
+}
+
+.tool-picker-modal .tool-pick-card {
+  min-height: 60px;
+  padding: 8px 10px;
+}
+
+.tool-picker-modal .active-tool-group {
+  min-height: 238px;
 }
 
 .tool-prompt-hint {
@@ -1929,6 +2342,72 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   border: 1px solid var(--border);
 }
 
+.reference-square {
+  width: min(176px, 100%);
+  aspect-ratio: 1;
+  padding: 12px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  color: var(--fg-2);
+  text-align: center;
+  cursor: pointer;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 50% 10%, rgba(87, 166, 255, 0.16), transparent 42%),
+    var(--tint);
+  transition: transform 160ms, border-color 160ms, box-shadow 160ms, color 160ms;
+}
+
+.reference-square:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  transform: translateY(-1px);
+}
+
+.reference-square img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.reference-square img + strong,
+.reference-square img ~ small {
+  z-index: 1;
+  padding: 4px 8px;
+  color: #fff;
+  border-radius: var(--radius-pill);
+  background: rgba(7, 11, 20, 0.64);
+  backdrop-filter: blur(8px);
+}
+
+.reference-square-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: var(--accent);
+  border-radius: 16px;
+  background: var(--accent-soft);
+}
+
+.reference-square strong {
+  font-size: 13px;
+}
+
+.reference-square small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .mode-flow-block p {
   line-height: 1.65;
 }
@@ -2034,6 +2513,32 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   line-height: 1.5;
 }
 
+.route-info-card {
+  padding: 11px 12px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--tint);
+}
+
+.route-info-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.route-info-card strong {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.route-info-card small {
+  color: var(--fg-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .ico-size-checks {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2063,35 +2568,7 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   align-content: start;
 }
 
-.flow-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.018);
-}
-
-.flow-row span {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  background: var(--surface);
-  color: var(--fg-2);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-align: center;
-}
-
-.flow-row .active {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 1px var(--border-glow);
-}
-
 .result-card {
-  margin: 22px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background:
@@ -2102,6 +2579,20 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   min-height: clamp(520px, 62vh, 760px);
   display: grid;
   grid-template-rows: auto 1fr auto;
+}
+
+.result-fold-card {
+  margin: 18px 22px;
+}
+
+.result-fold-content {
+  padding: 0 14px 14px;
+}
+
+.result-fold-card .result-card {
+  margin: 0;
+  min-height: clamp(430px, 56vh, 680px);
+  grid-template-rows: 1fr auto;
 }
 
 .result-head,
@@ -2833,6 +3324,22 @@ async function chooseWorkspaceExportDir(): Promise<void> {
     grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
   }
 
+  .compact-tool-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-group-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .tool-picker-modal .tool-picker-group {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .tool-picker-modal .tool-grid {
+    grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  }
+
   .three-d-preview-body {
     grid-template-columns: 1fr;
   }
@@ -2860,12 +3367,61 @@ async function chooseWorkspaceExportDir(): Promise<void> {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .flow-row {
+  .tool-summary-card {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .tool-summary-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .tool-summary-meta {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .tool-picker-modal-body {
+    padding: 12px;
+  }
+
+  .workspace-fold-card {
+    margin: 10px;
+  }
+
+  .workspace-fold-card > summary {
+    grid-template-columns: minmax(0, 1fr) auto 16px;
+  }
+
+  .workspace-fold-card > summary b {
+    max-width: 112px;
+  }
+
+  .tool-group-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .result-card {
-    margin: 14px;
+  .tool-picker-modal .tool-picker-group {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .tool-picker-modal .tool-picker-group-name {
+    min-height: 0;
+    padding: 8px 10px;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
+  .tool-picker-modal .tool-picker-group-name small {
+    margin-top: 0;
+  }
+
+  .tool-picker-modal .tool-grid {
+    grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  }
+
+  .result-fold-card .result-card {
     min-height: 440px;
     border-radius: var(--radius-lg);
   }

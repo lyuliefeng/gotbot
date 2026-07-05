@@ -1,7 +1,7 @@
-export type GenerationMode = 'txt2img' | 'img2img' | 'cover' | 'icon' | '3d' | 'gif'
+export type GenerationMode = 'txt2img' | 'img2img' | 'cover' | 'icon' | '3d' | 'gif' | 'txt2video' | 'img2video'
 
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed'
-export type ExportFormat = 'png' | 'jpg' | 'webp' | 'gif' | 'ico' | 'svg' | 'zip'
+export type ExportFormat = 'png' | 'jpg' | 'webp' | 'gif' | 'ico' | 'svg' | 'zip' | 'mp4'
 export type ActiveTab = 'workspace' | 'assets' | 'tools' | 'settings' | 'prompts' | 'about'
 export type KeyMode = 'user' | 'platform'
 
@@ -29,11 +29,11 @@ export interface ModelProfile {
   provider: 'openai-compatible'
   endpoint: string
   apiPath?: string
-  apiProtocol?: 'openai-chat' | 'anthropic-messages' | 'openai-images' | 'dashscope-wanxiang' | 'openai-image-edits' | 'multimodal-chat' | 'mgtv-storyboard' | 'openai-audio-speech' | 'agnes-image'
+  apiProtocol?: 'openai-chat' | 'anthropic-messages' | 'openai-images' | 'dashscope-wanxiang' | 'openai-image-edits' | 'multimodal-chat' | 'mgtv-storyboard' | 'openai-audio-speech' | 'agnes-image' | 'agnes-video' | 'openai-video'
   apiKey?: string
   apiSecret?: string
   model: string
-  kind: 'image' | 'text' | 'tts'
+  kind: 'image' | 'text' | 'tts' | 'video'
   isPrimary: boolean
   status: 'untested' | 'connected' | 'failed'
   lastCheckedAt?: string
@@ -43,7 +43,7 @@ export interface ModelProfile {
 export interface ModelCatalogItem {
   id: string
   name: string
-  kind: 'image' | 'text' | 'tts' | 'unknown'
+  kind: 'image' | 'text' | 'tts' | 'video' | 'unknown'
   source: 'remote' | 'builtin'
 }
 
@@ -72,7 +72,7 @@ export interface GeneratedAsset {
   dataUrl?: string
   cloudFileId?: string
   remoteUrl?: string
-  mediaType?: 'image'
+  mediaType?: 'image' | 'video'
   createdAt: string
   isFavorite?: boolean
 }
@@ -111,6 +111,7 @@ export interface CoverPreset {
 export interface AppSettings {
   defaultExportFormat: ExportFormat
   defaultImageModelId: string
+  defaultVideoModelId?: string
   defaultGenerationSize: number
   defaultBatchSize: number
   defaultStyle: string

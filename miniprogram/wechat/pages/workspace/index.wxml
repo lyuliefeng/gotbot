@@ -2,14 +2,14 @@
   <view class="workspace-hero">
     <view class="eyebrow">Create Studio</view>
     <view class="title">创作工作台</view>
-    <view class="subtitle">选择通道后进入配置面板，模型会按图片或视频自动匹配。</view>
+    <view class="subtitle">选择图像或视频通道后进入配置面板，模型会按创作类型自动匹配。</view>
   </view>
 
   <view class="section tool-section">
     <view class="section-heading">
       <view>
         <view class="title compact-title">创作类型</view>
-        <view class="subtitle">常用生图、生视频入口</view>
+        <view class="subtitle">常用生图与视频入口</view>
       </view>
     </view>
     <view class="tool-grid">
@@ -23,10 +23,10 @@
 
   <view wx:if="{{currentTask}}" class="section">
     <view class="title">本次结果</view>
-    <view wx:if="{{isVideoResult}}" class="muted">当前视频模式先生成视频首帧/分镜预览；MP4 生成将在接入视频模型后开放。</view>
     <view class="grid">
       <view wx:for="{{currentAssets}}" wx:key="id" class="card">
-        <image class="preview" src="{{item.assetUrl}}" mode="aspectFill" data-url="{{item.assetUrl}}" bindtap="previewAsset" />
+        <video wx:if="{{item.isVideo}}" class="preview" src="{{item.assetUrl}}" controls />
+        <image wx:else class="preview" src="{{item.assetUrl}}" mode="aspectFill" data-url="{{item.assetUrl}}" bindtap="previewAsset" />
         <view>{{item.title}}</view>
         <view class="muted">{{item.width}} x {{item.height}}</view>
         <button class="button-soft" data-url="{{item.assetUrl}}" bindtap="saveAsset">保存</button>
@@ -51,13 +51,30 @@
           <view class="meta-value">{{selectedModelName}}</view>
         </view>
         <view class="meta-item">
+          <view class="meta-label">模型类型</view>
+          <view class="meta-value">{{selectedModelKindLabel}}</view>
+        </view>
+        <view class="meta-item">
           <view class="meta-label">尺寸</view>
           <view class="meta-value">{{width}} x {{height}}</view>
         </view>
       </view>
 
       <view class="field">
-        <view class="label">模型</view>
+        <view class="model-mode-row">
+          <view>
+            <view class="label">匹配方式</view>
+            <view class="hint">{{modelMatchModeHint}}</view>
+          </view>
+          <view class="model-mode-control">
+            <view class="model-mode-label">{{modelMatchModeLabel}}</view>
+            <switch checked="{{manualModelEnabled}}" bindchange="onModelMatchModeChange" />
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{manualModelEnabled}}" class="field">
+        <view class="label">手动匹配模型</view>
         <picker mode="selector" range="{{models}}" range-key="name" value="{{modelIndex}}" bindchange="onModelChange">
           <view class="picker-box">{{selectedModelName}}</view>
         </picker>
@@ -72,7 +89,7 @@
 
       <view class="field">
         <view class="label">提示词</view>
-        <textarea class="textarea" value="{{prompt}}" data-field="prompt" bindinput="onInput" placeholder="描述主体、风格、光线和场景" />
+        <textarea class="textarea" value="{{prompt}}" data-field="prompt" bindinput="onInput" placeholder="{{promptPlaceholder}}" />
         <button class="polish-wide-button" loading="{{polishingPrompt}}" disabled="{{polishingPrompt}}" bindtap="polishPrompt">{{polishPromptText}}</button>
       </view>
 

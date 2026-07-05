@@ -1,7 +1,26 @@
+use std::sync::OnceLock;
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::api_endpoint::join_api_endpoint;
+
+fn text_http_client() -> Result<&'static reqwest::Client, TextPolishError> {
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(120))
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| {
+            TextPolishError::Validation(format!("初始化文本模型 HTTP 客户端失败: {error}"))
+        })
+}
 
 #[derive(Debug, Error)]
 pub enum TextPolishError {
@@ -78,7 +97,7 @@ pub async fn polish_prompt_with_model(
     let translate_to_english = input.task.as_deref() == Some("translate-to-english");
     let (system_prompt, user_prompt) = text_prompt_messages(&input, translate_to_english);
 
-    let response = reqwest::Client::new()
+    let response = text_http_client()?
         .post(endpoint)
         .bearer_auth(model.api_key.trim())
         .json(&serde_json::json!({
@@ -138,7 +157,7 @@ async fn polish_prompt_with_anthropic(
         .map_err(|error| TextPolishError::Validation(format!("文本模型{error}")))?;
     let translate_to_english = input.task.as_deref() == Some("translate-to-english");
     let (system_prompt, user_content) = text_prompt_messages(&input, translate_to_english);
-    let response = reqwest::Client::new()
+    let response = text_http_client()?
         .post(endpoint)
         .header("x-api-key", model.api_key.trim())
         .header("anthropic-version", "2023-06-01")
@@ -194,6 +213,36 @@ fn openai_chat_completions_endpoint(
 }
 
 fn local_text_polish(input: TextPolishInput, model_name: &str) -> TextPolishResult {
+    if input.task.as_deref() == Some("negative-prompt") {
+        let source = if input.prompt.trim().is_empty() {
+            "低清晰度、变形、文字水印、错误构图"
+        } else {
+            input.prompt.trim()
+        };
+        let mut items: Vec<String> = Vec::new();
+        for item in source.split(['，', ',', '、']).map(str::trim) {
+            if !item.is_empty() && !items.iter().any(|existing| existing == item) {
+                items.push(item.to_string());
+            }
+        }
+        for item in [
+            "低清晰度",
+            "结构变形",
+            "多余肢体",
+            "文字水印",
+            "噪点",
+            "过曝",
+            "构图混乱",
+        ] {
+            if !items.iter().any(|existing| existing == item) {
+                items.push(item.into());
+            }
+        }
+        return TextPolishResult {
+            prompt: items.join("、"),
+            model_name: model_name.into(),
+        };
+    }
     if input.task.as_deref() == Some("translate-to-english") {
         return TextPolishResult {
             prompt: [
@@ -260,6 +309,17 @@ fn text_prompt_messages(
             ),
         );
     }
+    if input.task.as_deref() == Some("negative-prompt") {
+        return (
+            "你是 SamImage 的 AI 图像反向提示词编辑器。只输出一段逗号或顿号分隔的反向提示词，不要解释。",
+            format!(
+                "模式：{}\n风格：{}\n原始反向提示词：{}\n请补充需要排除的低质量画面、结构错误、文字水印、噪点、畸形、过曝、构图混乱等问题；不要加入正向画面描述。",
+                input.mode_label.trim(),
+                input.style.trim(),
+                input.prompt.trim()
+            ),
+        );
+    }
 
     (
         "你是 SamImage 的中文 AI 图像提示词编辑器。只输出润色后的单段提示词，不要解释。",
@@ -295,4 +355,46 @@ struct AnthropicMessagesResponse {
 #[derive(Debug, Deserialize)]
 struct AnthropicContentBlock {
     text: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_negative_prompt_polish_deduplicates_and_extends_terms() {
+        let result = local_text_polish(
+            TextPolishInput {
+                prompt: "模糊、文字水印、文字水印".into(),
+                mode_label: "文生图反向提示词".into(),
+                style: "反向约束".into(),
+                task: Some("negative-prompt".into()),
+            },
+            "本地文本润色",
+        );
+
+        let terms: Vec<&str> = result.prompt.split('、').collect();
+        assert!(terms.contains(&"模糊"));
+        assert!(terms.contains(&"文字水印"));
+        assert!(terms.contains(&"结构变形"));
+        assert!(terms.contains(&"多余肢体"));
+        assert!(terms.contains(&"噪点"));
+        assert_eq!(terms.iter().filter(|term| **term == "文字水印").count(), 1);
+    }
+
+    #[test]
+    fn negative_prompt_messages_do_not_request_positive_scene_content() {
+        let (_system, user) = text_prompt_messages(
+            &TextPolishInput {
+                prompt: "低清晰度".into(),
+                mode_label: "文生图反向提示词".into(),
+                style: "反向约束".into(),
+                task: Some("negative-prompt".into()),
+            },
+            false,
+        );
+
+        assert!(user.contains("不要加入正向画面描述"));
+        assert!(user.contains("原始反向提示词"));
+    }
 }

@@ -64,7 +64,7 @@ const modelRows = computed<ModelSummaryRow[]>(() => {
     },
     {
       id: 'primary-text',
-      label: '文本润色模型',
+      label: '文本生成/润色模型',
       tag: modelTag(textModel),
       ...modelStatus(textModel),
     },
@@ -83,8 +83,8 @@ function toolWorkspaceLink(tool: { id: string; mode: GenerationMode }) {
 }
 
 function quickToolTone(tool: ToolEntry): string {
-  if (tool.id.includes('video') || tool.mode === 'txt2video' || tool.mode === 'img2video') return 'video'
   if (tool.id.includes('face') || tool.id.includes('portrait')) return 'portrait'
+  if (tool.mode === 'txt2video' || tool.mode === 'img2video') return 'motion'
   if (tool.mode === 'img2img') return 'remix'
   if (tool.mode === '3d') return 'cube'
   if (tool.mode === 'gif') return 'motion'

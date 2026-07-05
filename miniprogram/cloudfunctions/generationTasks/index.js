@@ -1,8 +1,15 @@
 const { decryptText } = require('./common/crypto')
-const { list, remove, upsert } = require('./common/db')
+const { list, upsert } = require('./common/db')
 const { createGenerationTask, MAX_BATCH_SIZE } = require('./common/generation-service')
-const { pickPlatformImageKey } = require('./common/platform-keys')
 const { fail, ok } = require('./common/types')
+
+const BUILTIN_DEFAULT_PROFILE_IDS = new Set([
+  'platform-agnes-image',
+  'platform-gogoing-text',
+  'platform-gogoing-image',
+  'platform-agnes-video',
+  'openai-gpt-image-2',
+])
 
 function resolveOpenid(context, event) {
   const openid = context.OPENID
@@ -13,8 +20,12 @@ function resolveOpenid(context, event) {
 function hydrateProfile(profile) {
   return {
     ...profile,
-    apiKey: profile.keyMode === 'platform' ? pickPlatformImageKey() : decryptText(profile.encryptedApiKey || ''),
+    apiKey: decryptText(profile.encryptedApiKey || ''),
   }
+}
+
+function isBuiltinDefaultProfile(profile) {
+  return Boolean(profile && (profile.keyMode === 'platform' || BUILTIN_DEFAULT_PROFILE_IDS.has(profile.id)))
 }
 
 const TASK_WHITELIST = [
@@ -43,27 +54,10 @@ exports.main = async function main(event = {}, context = {}) {
       if (typeof event.input.batchSize === 'number' && event.input.batchSize > MAX_BATCH_SIZE) {
         throw new Error(`batchSize 不能超过 ${MAX_BATCH_SIZE}`)
       }
-      const profiles = await list('modelProfiles', (item) => item.openid === openid)
-      const isVideoMode = event.input.mode === 'txt2video' || event.input.mode === 'img2video'
-      const fallbackImage = {
-        id: 'platform-agnes-image',
-        name: '平台 Agnes Image',
-        endpoint: 'https://api.gogoing.kdns.fr',
-        apiPath: 'v1/images/generations',
-        apiProtocol: 'openai-images',
-        model: 'agnes-image-2.1-flash',
-        keyMode: 'platform',
-      }
-      const fallbackVideo = {
-        id: 'platform-agnes-video',
-        name: '平台 Agnes Video',
-        endpoint: 'https://api.gogoing.kdns.fr',
-        apiPath: 'v1/video/generations',
-        apiProtocol: 'openai-video',
-        model: 'agnes-video-v2.0',
-        keyMode: 'platform',
-      }
-      const model = hydrateProfile(profiles.find((item) => item.id === event.input.modelId) || (isVideoMode ? fallbackVideo : fallbackImage))
+      const profiles = await list('modelProfiles', (item) => item.openid === openid && !isBuiltinDefaultProfile(item))
+      const selectedProfile = profiles.find((item) => item.id === event.input.modelId)
+      if (!selectedProfile) throw new Error('请先配置第三方 API 模型')
+      const model = hydrateProfile(selectedProfile)
       const task = await createGenerationTask(event.input, model, openid)
       await upsert('generationTasks', (item) => item.id === task.id, { ...whitelistInput(task), id: task.id, openid, status: task.status, assetKind: task.assetKind, assets: task.assets, createdAt: task.createdAt, keyMode: task.keyMode })
       return ok(task)

@@ -19,7 +19,8 @@ const cannedPrompts = {
 
 exports.main = async function main(event = {}, context = {}) {
   try {
-    const openid = context.OPENID || event.openid || 'mock-openid'
+    const openid = context.OPENID
+    if (!openid) throw new Error('认证失败：无法获取用户身份')
 
     if (event.action === 'list') {
       const packs = await list('promptPacks', (item) => item.openid === openid)
@@ -28,7 +29,8 @@ exports.main = async function main(event = {}, context = {}) {
 
     if (event.action === 'sync') {
       const source = event.source
-      const items = cannedPrompts[source] || []
+      if (!source || !cannedPrompts[source]) throw new Error(`不支持的来源：${source || '(空)'}`)
+      const items = cannedPrompts[source]
       await upsert('promptPacks', (item) => item.openid === openid && item.source === source, {
         openid,
         source,
@@ -38,7 +40,7 @@ exports.main = async function main(event = {}, context = {}) {
       return ok(items)
     }
 
-    return fail('unsupported action')
+    throw new Error('不支持的操作')
   } catch (error) {
     return fail(error instanceof Error ? error.message : 'promptPacks failed')
   }

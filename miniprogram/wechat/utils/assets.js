@@ -1,5 +1,5 @@
 function getDirectAssetUrl(asset) {
-  return asset.remoteUrl || asset.dataUrl || asset.assetUrl || ''
+  return asset.assetUrl || asset.remoteUrl || asset.dataUrl || ''
 }
 
 async function resolveAssetUrls(assets) {

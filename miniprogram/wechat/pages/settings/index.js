@@ -1,40 +1,47 @@
 const { callFunction } = require('../../utils/cloud')
-const { loadState, saveState } = require('../../utils/state')
+const { applyDefaultModelIds, loadState, mergeModelsById, preferredModelForKind, saveState, visibleModels } = require('../../utils/state')
 
-const defaultProviderEndpoint = 'https://api.gogoing.kdns.fr'
-const apiProtocol = 'openai-images'
-const apiPath = 'v1/images/generations'
 const nameOptions = [
-  { label: '文字/多模态', value: '第三方文字模型', endpoint: '', model: '', kind: 'text' },
+  { label: '大语言模型', value: '第三方大语言模型', endpoint: '', model: '', kind: 'text' },
   { label: '生图接口', value: '第三方生图模型', endpoint: '', model: '', kind: 'image' },
-  { label: '生视频接口', value: '第三方生视频模型', endpoint: '', model: '', kind: 'video' },
+  { label: '视频接口', value: '第三方视频模型', endpoint: '', model: '', kind: 'video' },
   { label: '自定义', value: '', kind: 'image' },
 ]
 const customNameIndex = nameOptions.length - 1
 const kindOptions = [
-  { label: '文字/多模态识别', value: 'text', hint: '用于文字对话、多模态识别、提示词处理等能力。' },
+  { label: '大语言模型', value: 'text', hint: '用于文字对话、多模态识别、提示词处理等能力。' },
   { label: '生图模型', value: 'image', hint: '文生图、图生图、封面、ICON、3D 图和 GIF 会自动使用这个通道。' },
-  { label: '生视频模型', value: 'video', hint: '文生视频和图生视频会自动只显示这个通道的模型。' },
+  { label: '视频模型', value: 'video', hint: '文生视频、图生视频会自动使用这个通道。' },
 ]
+
+function apiProtocolForKind(kind) {
+  if (kind === 'video') return 'openai-video'
+  if (kind === 'image') return 'openai-images'
+  return 'multimodal-chat'
+}
+
+function apiPathForKind(kind) {
+  if (kind === 'video') return 'v1/video/generations'
+  if (kind === 'image') return 'v1/images/generations'
+  return 'v1/chat/completions'
+}
+
 function emptyDraft() {
+  const kind = 'text'
   return {
     id: '',
-    name: '第三方文字模型',
+    name: '第三方大语言模型',
     provider: 'openai-compatible',
     endpoint: '',
-    apiPath,
-    apiProtocol,
+    apiPath: apiPathForKind(kind),
+    apiProtocol: apiProtocolForKind(kind),
     apiKey: '',
     model: '',
-    kind: 'text',
+    kind,
     keyMode: 'user',
     isPrimary: false,
     status: 'untested',
   }
-}
-
-function isVisibleModel(model) {
-  return Boolean(model && model.model)
 }
 
 function decorateModel(model, selectedModelId = '') {
@@ -49,13 +56,27 @@ function decorateModel(model, selectedModelId = '') {
   }
 }
 
+function isBuiltinDefaultGroup(model) {
+  return Boolean(model && (model.keyMode === 'platform' || String(model.id || '').startsWith('platform-') || /^默认(文字|图片|视频)组$/.test(String(model.name || ''))))
+}
+
+function settingsVisibleModels(models) {
+  return visibleModels(models).filter((model) => !isBuiltinDefaultGroup(model))
+}
+
+function modelsMatchingKind(models, kind) {
+  return (models || []).filter((model) => Boolean(model && (model.id || model.model)) && (model.kind || 'text') === kind)
+}
+
 function currentKindOption(kind) {
   const option = kindOptions.find((item) => item.value === kind) || kindOptions[0]
-  return { ...option, shortLabel: option.value === 'text' ? '文字/多模态' : option.value === 'video' ? '生视频' : '生图' }
+  return { ...option, shortLabel: option.value === 'text' ? '大语言' : option.value === 'video' ? '视频' : '生图' }
 }
 
 function endpointLabelForKind(kind) {
-  return kind === 'video' ? '视频接口地址' : kind === 'text' ? '文字接口地址' : '生图接口地址'
+  if (kind === 'text') return '大语言模型接口地址'
+  if (kind === 'video') return '视频模型接口地址'
+  return '生图模型接口地址'
 }
 
 function modelPickerLabel(options, index) {
@@ -91,13 +112,9 @@ function classifyModel(value) {
   return 'text'
 }
 
-function bestModelForKind(models, kind) {
-  const scoped = models.filter((model) => (model.kind || 'text') === kind)
-  return scoped.slice().sort((a, b) => (a.latencyMs || Number.MAX_SAFE_INTEGER) - (b.latencyMs || Number.MAX_SAFE_INTEGER))[0] || scoped[0] || models[0]
-}
-
 function applyModelDiscovery(models, kind) {
-  const selected = bestModelForKind(models, kind)
+  const selected = preferredModelForKind(models, kind)
+  const nextKind = selected ? selected.kind : kind
   const selectedIndex = selected ? models.findIndex((item) => item.id === selected.id) : -1
   return {
     modelOptions: models,
@@ -105,11 +122,13 @@ function applyModelDiscovery(models, kind) {
     currentModelLabel: modelPickerLabel(models, selectedIndex),
     currentModelText: selected ? selected.id : '未选择模型',
     'draft.model': selected ? selected.id : '',
-    'draft.kind': selected ? selected.kind : kind,
-    kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === (selected ? selected.kind : kind))),
-    currentKindLabel: currentKindOption(selected ? selected.kind : kind).label,
-    kindHint: currentKindOption(selected ? selected.kind : kind).hint,
-    endpointLabel: endpointLabelForKind(selected ? selected.kind : kind),
+    'draft.kind': nextKind,
+    'draft.apiProtocol': apiProtocolForKind(nextKind),
+    'draft.apiPath': apiPathForKind(nextKind),
+    kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === nextKind)),
+    currentKindLabel: currentKindOption(nextKind).label,
+    kindHint: currentKindOption(nextKind).hint,
+    endpointLabel: endpointLabelForKind(nextKind),
     showManualModelInput: false,
   }
 }
@@ -122,12 +141,6 @@ function modelCounts(models) {
   }, { text: 0, image: 0, video: 0 })
 }
 
-function mergeModels(existing, incoming) {
-  const map = new Map((existing || []).map((model) => [model.id, model]))
-  for (const model of incoming || []) map.set(model.id, model)
-  return Array.from(map.values())
-}
-
 Page({
   data: {
     models: [],
@@ -138,7 +151,7 @@ Page({
     currentNameLabel: nameOptions[0].label,
     currentKindLabel: kindOptions[0].label,
     currentModelLabel: '选择模型：请选择',
-    currentModelText: '先拉取或手动填写模型 ID',
+    currentModelText: '请选择模型',
     nameIndex: 0,
     kindIndex: 0,
     showCustomName: false,
@@ -152,76 +165,68 @@ Page({
     selectedModelId: '',
     formOpen: false,
     formTitle: '添加模型',
-    defaultProviderEndpoint,
-    isResettingDefault: false,
     hasModels: false,
     showEmptyModels: true,
   },
 
   onShow() {
+    this.hydrateModelsFromState()
+  },
+
+  hydrateModelsFromState() {
     const state = loadState()
-    const cachedModels = (state.models || []).filter(isVisibleModel).map((model) => decorateModel(model, this.data.selectedModelId))
+    const cachedModels = settingsVisibleModels(state.models).map((model) => decorateModel(model, this.data.selectedModelId))
     this.setData({ models: cachedModels, hasModels: cachedModels.length > 0, showEmptyModels: cachedModels.length === 0 })
-    this.refreshDefaultProvider()
   },
 
   applyModelProfiles(models, notice) {
     const state = loadState()
     state.models = models
-    const textDefault = bestModelForKind(models, 'text')
-    const imageDefault = bestModelForKind(models, 'image')
-    const videoDefault = bestModelForKind(models, 'video')
-    state.defaultTextModelId = textDefault ? textDefault.id : ''
-    state.defaultModelId = imageDefault ? imageDefault.id : ''
-    state.defaultVideoModelId = videoDefault ? videoDefault.id : ''
+    applyDefaultModelIds(state, models)
     saveState(state)
-    const decorated = models.filter(isVisibleModel).map((model) => decorateModel(model, this.data.selectedModelId))
+    const decorated = settingsVisibleModels(models).map((model) => decorateModel(model, this.data.selectedModelId))
     this.setData({ models: decorated, hasModels: decorated.length > 0, showEmptyModels: decorated.length === 0, notice })
   },
 
-  async refreshDefaultProvider() {
-    if (this.data.isResettingDefault) return
-    this.setData({ isResettingDefault: true, error: '', notice: '正在扫描默认接口并清除其他 API...' })
-    try {
-      const result = await callFunction('modelProfiles', { action: 'resetDefaultProvider' })
-      const models = result.models || []
-      const counts = modelCounts(models)
-      this.applyModelProfiles(models, `已清除其他 API，并导入默认接口模型：文字/多模态 ${counts.text}，生图 ${counts.image}，生视频 ${counts.video}`)
-    } catch (error) {
-      this.setData({ error: error.message || '默认接口扫描失败' })
-    } finally {
-      this.setData({ isResettingDefault: false })
-    }
+  openModelSettings() {
+    this.openModelForm('text', '配置模型')
   },
 
-  onQuickAdd(event) {
-    const kind = event.currentTarget.dataset.kind
+  openModelForm(kind, title) {
     const preset = nameOptions.find((item) => item.kind === kind) || nameOptions[0]
     const kindIdx = kindOptions.findIndex((item) => item.value === kind)
-    const titleMap = { image: '添加生图模型', video: '添加视频模型', text: '添加文字模型' }
+    const draftKind = kind || 'text'
     this.setData({
       formOpen: true,
-      formTitle: titleMap[kind] || '添加模型',
-      draft: { ...emptyDraft(), kind: kind || 'image', name: preset.value || '', keyMode: 'user' },
+      formTitle: title || '添加模型',
+      draft: { ...emptyDraft(), kind: draftKind, name: preset.value || '', apiPath: apiPathForKind(draftKind), apiProtocol: apiProtocolForKind(draftKind), keyMode: 'user' },
       nameIndex: preset.value ? nameOptions.indexOf(preset) : nameOptions.length - 1,
       currentNameLabel: preset.label,
       showCustomName: !preset.value,
       kindIndex: Math.max(0, kindIdx),
-      currentKindLabel: currentKindOption(kind).label,
-      kindHint: currentKindOption(kind).hint,
-      endpointLabel: endpointLabelForKind(kind),
+      currentKindLabel: currentKindOption(draftKind).label,
+      kindHint: currentKindOption(draftKind).hint,
+      endpointLabel: endpointLabelForKind(draftKind),
       modelOptions: [],
       modelIndex: -1,
       showManualModelInput: true,
-      currentModelText: '先拉取或手动填写模型 ID',
+      currentModelText: '请选择模型',
       notice: '',
       error: '',
     })
   },
 
+  onQuickAdd(event) {
+    const kind = event.currentTarget.dataset.kind
+    const titleMap = { image: '添加生图模型', text: '添加大语言模型' }
+    this.openModelForm(kind, titleMap[kind] || '添加模型')
+  },
+
   closeForm() {
     this.setData({ formOpen: false, notice: '', error: '' })
   },
+
+  noop() {},
 
   onInput(event) {
     const field = event.currentTarget.dataset.field
@@ -245,6 +250,8 @@ Page({
       next['draft.endpoint'] = preset.endpoint
       next['draft.model'] = preset.model
       next['draft.kind'] = preset.kind || 'image'
+      next['draft.apiProtocol'] = apiProtocolForKind(preset.kind || 'image')
+      next['draft.apiPath'] = apiPathForKind(preset.kind || 'image')
       next['draft.keyMode'] = 'user'
       next.kindIndex = Math.max(0, kindOptions.findIndex((item) => item.value === (preset.kind || 'image')))
       next.currentKindLabel = currentKindOption(preset.kind).label
@@ -253,10 +260,12 @@ Page({
       next.modelOptions = []
       next.modelIndex = -1
       next.showManualModelInput = true
-      next.currentModelText = preset.model || '先拉取或手动填写模型 ID'
+      next.currentModelText = preset.model || '请选择模型'
     } else {
       next['draft.name'] = ''
       next['draft.kind'] = 'text'
+      next['draft.apiProtocol'] = apiProtocolForKind('text')
+      next['draft.apiPath'] = apiPathForKind('text')
       next['draft.keyMode'] = 'user'
       next.kindIndex = 0
       next.currentKindLabel = kindOptions[0].label
@@ -265,7 +274,7 @@ Page({
       next.modelOptions = []
       next.modelIndex = -1
       next.showManualModelInput = true
-      next.currentModelText = '先拉取或手动填写模型 ID'
+      next.currentModelText = '请选择模型'
     }
     this.setData(next)
   },
@@ -277,8 +286,17 @@ Page({
       kindIndex: index,
       currentKindLabel: option.label,
       'draft.kind': option.value,
+      'draft.name': (nameOptions.find((item) => item.kind === option.value) || nameOptions[0]).value,
+      'draft.apiProtocol': apiProtocolForKind(option.value),
+      'draft.apiPath': apiPathForKind(option.value),
+      'draft.model': '',
       kindHint: option.hint,
       endpointLabel: endpointLabelForKind(option.value),
+      modelOptions: [],
+      modelIndex: -1,
+      currentModelLabel: '选择模型：请选择',
+      currentModelText: '未选择模型',
+      showManualModelInput: true,
       notice: '',
       error: '',
     })
@@ -295,6 +313,8 @@ Page({
       showManualModelInput: false,
       'draft.model': model.id,
       'draft.kind': model.kind || this.data.draft.kind,
+      'draft.apiProtocol': apiProtocolForKind(model.kind || this.data.draft.kind),
+      'draft.apiPath': apiPathForKind(model.kind || this.data.draft.kind),
       kindIndex: Math.max(0, kindOptions.findIndex((item) => item.value === (model.kind || this.data.draft.kind))),
       currentKindLabel: currentKindOption(model.kind || this.data.draft.kind).label,
       kindHint: currentKindOption(model.kind || this.data.draft.kind).hint,
@@ -315,7 +335,7 @@ Page({
       return
     }
     this.setData({ isFetchingModels: true, notice: '', error: '' })
-    callFunction('modelProfiles', { action: 'discover', profile: { ...draft, apiProtocol, apiPath } })
+    callFunction('modelProfiles', { action: 'discover', profile: { ...draft, apiProtocol: apiProtocolForKind(draft.kind), apiPath: apiPathForKind(draft.kind) } })
       .then((result) => {
         const models = normalizeModels(result.availableModels || result.models || result)
         if (!models.length) throw new Error('没有拉取到可选模型')
@@ -357,12 +377,15 @@ Page({
 
   async importDiscoveredModels(models, latencyMs) {
     const draft = this.data.draft
-    const profiles = models.map((model) => ({
+    const targetKind = draft.kind || 'text'
+    const scopedModels = modelsMatchingKind(models, targetKind)
+    if (!scopedModels.length) throw new Error(`没有拉取到${currentKindOption(targetKind).shortLabel}模型`)
+    const profiles = scopedModels.map((model) => ({
       name: `${currentKindOption(model.kind).shortLabel} · ${model.name || model.id}`,
       provider: 'openai-compatible',
       endpoint: normalizeEndpoint(draft.endpoint),
-      apiPath,
-      apiProtocol,
+      apiPath: apiPathForKind(model.kind || targetKind),
+      apiProtocol: apiProtocolForKind(model.kind || targetKind),
       apiKey: draft.apiKey,
       model: model.id,
       kind: model.kind || 'text',
@@ -372,24 +395,25 @@ Page({
     }))
     const saved = await callFunction('modelProfiles', { action: 'saveMany', profiles })
     const state = loadState()
-    state.models = mergeModels(state.models || [], saved)
-    const textDefault = bestModelForKind(saved, 'text')
-    const imageDefault = bestModelForKind(saved, 'image')
-    const videoDefault = bestModelForKind(saved, 'video')
+    state.models = mergeModelsById(state.models || [], saved)
+    const textDefault = preferredModelForKind(saved, 'text')
+    const imageDefault = preferredModelForKind(saved, 'image')
+    const videoDefault = preferredModelForKind(saved, 'video')
     if (textDefault) state.defaultTextModelId = textDefault.id
     if (imageDefault) state.defaultModelId = imageDefault.id
     if (videoDefault) state.defaultVideoModelId = videoDefault.id
     saveState(state)
     const counts = modelCounts(saved)
-    const next = applyModelDiscovery(models, draft.kind || 'text')
+    const next = applyModelDiscovery(scopedModels, targetKind)
+    const visible = settingsVisibleModels(state.models)
     this.setData({
       ...next,
-      models: state.models.filter(isVisibleModel).map((model) => decorateModel(model, this.data.selectedModelId)),
-      hasModels: state.models.filter(isVisibleModel).length > 0,
-      showEmptyModels: state.models.filter(isVisibleModel).length === 0,
+      models: visible.map((model) => decorateModel(model, this.data.selectedModelId)),
+      hasModels: visible.length > 0,
+      showEmptyModels: visible.length === 0,
       showManualModelInput: false,
       isFetchingModels: false,
-      notice: `已自动导入 ${saved.length} 个模型：文字/多模态 ${counts.text}，生图 ${counts.image}，生视频 ${counts.video}`,
+      notice: `已自动导入 ${saved.length} 个${currentKindOption(targetKind).shortLabel}模型：大语言 ${counts.text}，生图 ${counts.image}，视频 ${counts.video}`,
       error: '',
     })
   },
@@ -407,7 +431,7 @@ Page({
     const model = this.data.models.find((item) => item.id === event.currentTarget.dataset.id)
     if (!model) return
     this.setData({
-      draft: { ...emptyDraft(), ...model, apiProtocol, apiPath, endpoint: normalizeEndpoint(model.endpoint), apiKey: '', keyMode: 'user' },
+      draft: { ...emptyDraft(), ...model, apiProtocol: apiProtocolForKind(model.kind), apiPath: apiPathForKind(model.kind), endpoint: normalizeEndpoint(model.endpoint), apiKey: '', keyMode: 'user' },
       nameIndex: customNameIndex,
       currentNameLabel: nameOptions[customNameIndex].label,
       showCustomName: true,
@@ -428,7 +452,8 @@ Page({
 
   async save() {
     try {
-      const saved = await callFunction('modelProfiles', { action: 'save', profile: { ...this.data.draft, keyMode: 'user', apiProtocol, apiPath, endpoint: normalizeEndpoint(this.data.draft.endpoint) } })
+      const draft = this.data.draft
+      const saved = await callFunction('modelProfiles', { action: 'save', profile: { ...draft, keyMode: 'user', apiProtocol: apiProtocolForKind(draft.kind), apiPath: apiPathForKind(draft.kind), endpoint: normalizeEndpoint(draft.endpoint) } })
       const state = loadState()
       const models = state.models || []
       const index = models.findIndex((model) => model.id === saved.id)
@@ -439,10 +464,11 @@ Page({
       else if (saved.kind === 'video') state.defaultVideoModelId = state.defaultVideoModelId || saved.id
       else state.defaultModelId = state.defaultModelId || saved.id
       saveState(state)
+      const visible = settingsVisibleModels(models)
       this.setData({
-        models: models.filter(isVisibleModel).map((model) => decorateModel(model, this.data.selectedModelId)),
-        hasModels: models.filter(isVisibleModel).length > 0,
-        showEmptyModels: models.filter(isVisibleModel).length === 0,
+        models: visible.map((model) => decorateModel(model, this.data.selectedModelId)),
+        hasModels: visible.length > 0,
+        showEmptyModels: visible.length === 0,
         draft: emptyDraft(),
         nameIndex: 0,
         currentNameLabel: nameOptions[0].label,
@@ -454,7 +480,7 @@ Page({
         modelOptions: [],
         modelIndex: -1,
         currentModelLabel: '选择模型：请选择',
-        currentModelText: '先拉取或手动填写模型 ID',
+        currentModelText: '请选择模型',
         showManualModelInput: true,
         notice: '模型配置已保存',
         error: '',
@@ -471,7 +497,7 @@ Page({
       const profileId = draft.id
       const result = profileId
         ? await callFunction('modelProfiles', { action: 'test', profileId })
-        : await callFunction('modelProfiles', { action: 'test', profile: { ...draft, keyMode: 'user', apiProtocol, apiPath, endpoint: normalizeEndpoint(draft.endpoint) } })
+        : await callFunction('modelProfiles', { action: 'test', profile: { ...draft, keyMode: 'user', apiProtocol: apiProtocolForKind(draft.kind), apiPath: apiPathForKind(draft.kind), endpoint: normalizeEndpoint(draft.endpoint) } })
       this.setData({ notice: result.message, error: '' })
     } catch (error) {
       this.setData({ error: error.message || '检测失败' })
@@ -496,11 +522,10 @@ Page({
     }
     const state = loadState()
     state.models = (state.models || []).filter((model) => model.id !== id)
-    if (state.defaultTextModelId === id) state.defaultTextModelId = (state.models.find((m) => m.kind === 'text') || {}).id || ''
-    if (state.defaultModelId === id) state.defaultModelId = (state.models.find((m) => (m.kind || 'image') === 'image') || {}).id || ''
-    if (state.defaultVideoModelId === id) state.defaultVideoModelId = (state.models.find((m) => m.kind === 'video') || {}).id || ''
+    if (state.defaultTextModelId === id) state.defaultTextModelId = (preferredModelForKind(state.models, 'text') || {}).id || ''
+    if (state.defaultModelId === id) state.defaultModelId = (preferredModelForKind(state.models, 'image') || {}).id || ''
     saveState(state)
-    const visible = state.models.filter(isVisibleModel).map((model) => decorateModel(model, ''))
+    const visible = settingsVisibleModels(state.models).map((model) => decorateModel(model, ''))
     this.setData({ models: visible, hasModels: visible.length > 0, showEmptyModels: visible.length === 0, selectedModelId: '' })
   },
 })

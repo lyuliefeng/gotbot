@@ -191,7 +191,10 @@ async fn openai_compatible_text_polish_supports_video_prompt_task() {
     .await
     .expect("video prompt polish should use text model");
 
-    assert_eq!(result.prompt, "一只小狗在草地上奔跑，低机位跟拍，阳光柔和，动作连贯。");
+    assert_eq!(
+        result.prompt,
+        "一只小狗在草地上奔跑，低机位跟拍，阳光柔和，动作连贯。"
+    );
     let payload = captured_payload.lock().await;
     assert!(
         payload["messages"][1]["content"]

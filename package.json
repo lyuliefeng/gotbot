@@ -33,7 +33,11 @@
     "check:release": "npm run check && npm run test:e2e && npm run build:app",
     "tauri:dev": "npm run tauri -- dev",
     "tauri:info": "npm run tauri -- info",
-    "tauri": "node scripts/tauri-cli.cjs"
+    "tauri": "node scripts/tauri-cli.cjs",
+    "build:mac": "npm run build && electron-builder --mac dmg",
+    "build:dmg": "npm run build:mac",
+    "bundle:mac": "npm run build:mac",
+    "bundle:dmg": "npm run build:dmg"
   },
   "main": "electron/main.cjs",
   "build": {
@@ -48,10 +52,19 @@
       "output": "release-electron"
     },
     "mac": {
-      "target": "dir"
+      "target": [
+        "dmg"
+      ],
+      "identity": null
     },
     "win": {
-      "target": ["nsis", "msi"]
+      "target": [
+        "nsis",
+        "msi"
+      ]
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   },
   "dependencies": {

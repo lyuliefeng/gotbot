@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Download, FolderOpen, LoaderCircle, Plus, RotateCcw, Save, Star, TestTube2, Trash2, Upload } from 'lucide-vue-next'
+import { Download, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-vue-next'
 import { exportFormatOptions, stylePresets } from '@/data/catalog'
-import { useAppStore } from '@/stores/app'
-import { pickDirectory } from '@/services/desktop'
+import { useAppStore, type ModelRouteGroup } from '@/stores/app'
 import type { ModelCatalogItem, ModelProfile, PromptItem } from '@/types/domain'
 import { createId } from '@/domain/ids'
 
@@ -16,15 +15,26 @@ const promptSourceFilter = ref('all')
 const promptCategoryFilter = ref('all')
 const promptOriginFilter = ref<'all' | 'imported' | 'builtin'>('all')
 const promptImportDragging = ref(false)
-const modelCatalogOpen = ref(false)
 const modelCatalogSearch = ref('')
-const selectedCatalogModelId = ref('')
+const selectedCatalogModelIds = ref<Set<string>>(new Set())
 const remoteModelCatalog = ref<ModelCatalogEntry[]>([])
 const modelCatalogLoading = ref(false)
 const modelCatalogNotice = ref('')
+type ChannelPresetId = 'openai' | 'agnes' | 'third-party'
+type ChannelBaseUrlPresetId = 'openai' | 'agnes' | 'custom'
+type ChannelDefaultModelKind = 'all' | ModelProfile['kind']
+
+const channelPresetId = ref<ChannelPresetId>('third-party')
+const channelBaseUrlPresetId = ref<ChannelBaseUrlPresetId>('custom')
+const channelDefaultModelKind = ref<ChannelDefaultModelKind>('all')
+const channelRemark = ref('')
+const apiKeyVisible = ref(false)
+const modelBenchmarkWindow = ref<'3m' | '6m' | '12m'>('3m')
+const modelManagerSearch = ref('')
+const modelManagerKindFilter = ref<'all' | ModelProfile['kind']>('all')
 const editingModelId = ref('')
 const testingModelIds = ref<Set<string>>(new Set())
-const testingAllModels = ref(false)
+const selectedRouteProfileId = ref('')
 const coverPresetModalOpen = ref(false)
 const coverPresetName = ref('')
 const coverPresetWidth = ref(1080)
@@ -39,6 +49,8 @@ const draft = ref<ModelProfile>({
   apiProtocol: 'openai-images',
   apiKey: '',
   apiSecret: '',
+  headersJson: '',
+  note: '',
   model: '',
   kind: 'image',
   isPrimary: false,
@@ -59,6 +71,34 @@ type ProtocolOption = {
   label: string
   path: string
 }
+type ApiChannelEntry = {
+  key: string
+  profile: ModelProfile
+  profiles: ModelProfile[]
+  name: string
+}
+type ChannelPreset = {
+  id: ChannelPresetId
+  label: string
+  name: string
+  endpoint: string
+}
+type BaseUrlPreset = {
+  id: ChannelBaseUrlPresetId
+  label: string
+  endpoint: string
+}
+
+const channelPresets: ChannelPreset[] = [
+  { id: 'openai', label: 'OpenAI', name: 'OpenAI', endpoint: 'https://api.openai.com' },
+  { id: 'agnes', label: 'Agnes', name: 'Agnes', endpoint: 'https://apihub.agnes-ai.com' },
+  { id: 'third-party', label: '第三方接口', name: '第三方接口', endpoint: '' },
+]
+const channelBaseUrlPresets: BaseUrlPreset[] = [
+  { id: 'openai', label: 'OpenAI 路由', endpoint: 'https://api.openai.com' },
+  { id: 'agnes', label: 'Agnes 路由', endpoint: 'https://apihub.agnes-ai.com' },
+  { id: 'custom', label: '第三方接口', endpoint: '' },
+]
 
 const textProtocolOptions: ProtocolOption[] = [
   { value: 'openai-chat', label: 'OpenAI 通用标准', path: 'v1/chat/completions' },
@@ -72,11 +112,17 @@ const imageProtocolOptions: ProtocolOption[] = [
   { value: 'openai-image-edits', label: 'Images Edits / 自定义编辑', path: 'v1/images/edits' },
   { value: 'multimodal-chat', label: '多模态 Chat', path: 'v1/chat/completions' },
 ]
+const videoProtocolOptions: ProtocolOption[] = [
+  { value: 'agnes-video', label: 'Agnes Video', path: 'v1/videos' },
+]
 const ttsProtocolOptions: ProtocolOption[] = [
   { value: 'openai-audio-speech', label: 'OpenAI Audio Speech', path: 'v1/audio/speech' },
 ]
-const videoProtocolOptions: ProtocolOption[] = [
-  { value: 'agnes-video', label: 'Agnes Video', path: 'v1/videos' },
+const modelManagerKindTabs: Array<{ value: ModelProfile['kind']; label: string }> = [
+  { value: 'image', label: '图像' },
+  { value: 'video', label: '视频' },
+  { value: 'text', label: '文本' },
+  { value: 'tts', label: '语音' },
 ]
 
 const promptSources = computed(() => Array.from(new Set(store.prompts.map((item) => item.source))))
@@ -107,33 +153,87 @@ const filteredPrompts = computed(() => {
 const enabledCoverPresetCount = computed(() => store.coverPresets.filter((preset) => preset.enabled).length)
 const filteredModelCatalog = computed(() => {
   const keyword = modelCatalogSearch.value.trim().toLowerCase()
-  // 显示所有获取到的模型，标注与当前 kind 的兼容性（不直接隐藏，避免数量不一致的困惑）
-  return remoteModelCatalog.value
+  return defaultKindModelCatalog.value
     .filter((item) => !keyword || `${item.name} ${item.model}`.toLowerCase().includes(keyword))
 })
 
-// 当前类型 vs 不匹配数量统计（用于提示）
-const modelCatalogCount = computed(() => {
-  const total = remoteModelCatalog.value.length
-  const match = remoteModelCatalog.value.filter((item) => item.kind === draft.value.kind || item.kind === 'unknown').length
-  return { total, match, other: total - match }
+const defaultKindModelCatalog = computed(() => remoteModelCatalog.value.filter((item) => channelDefaultModelKind.value === 'all' || item.kind === channelDefaultModelKind.value))
+
+function draftModelCatalogEntry(): ModelCatalogEntry[] {
+  const model = draft.value.model.trim()
+  if (!model) return []
+  return [{
+    id: model,
+    name: model,
+    model,
+    provider: 'openai-compatible',
+    kind: draft.value.kind,
+    endpoint: draft.value.endpoint,
+    apiPath: draft.value.apiPath ?? defaultApiPath(draft.value.kind),
+    apiProtocol: draft.value.apiProtocol ?? defaultApiProtocol(draft.value.kind),
+    source: 'remote',
+  }]
+}
+
+const channelSelectableModelOptions = computed<ModelCatalogEntry[]>(() => {
+  if (remoteModelCatalog.value.length) return defaultKindModelCatalog.value
+  return draftModelCatalogEntry()
 })
 
-// 选中的目录模型是否与当前配置的 kind 兼容（仅已识别且不同才不兼容）
-const selectedCatalogKind = computed(() => {
-  return remoteModelCatalog.value.find((model) => model.model === selectedCatalogModelId.value)?.kind ?? 'unknown'
+const channelModelOptions = computed<ModelCatalogEntry[]>(() => {
+  if (remoteModelCatalog.value.length) return filteredModelCatalog.value
+  return draftModelCatalogEntry()
 })
-const selectedCatalogIncompatible = computed(() => {
-  return selectedCatalogKind.value !== 'unknown' && selectedCatalogKind.value !== draft.value.kind
+const selectedChannelModels = computed(() => channelSelectableModelOptions.value.filter((item) => selectedCatalogModelIds.value.has(item.model)))
+const selectedChannelModelCount = computed(() => selectedChannelModels.value.length)
+const autoApiTypeSummary = computed(() => `${apiTypeLabel(draft.value)} · ${draft.value.apiPath || defaultApiPath(draft.value.kind)}`)
+const managedModels = computed(() => store.models.filter((model) => model.provider !== 'local-preview'))
+const managedModelCount = computed(() => managedModels.value.length)
+const filteredManagedModels = computed(() => {
+  const keyword = modelManagerSearch.value.trim().toLowerCase()
+  return managedModels.value.filter((model) => {
+    if (modelManagerKindFilter.value !== 'all' && model.kind !== modelManagerKindFilter.value) return false
+    if (!keyword) return true
+    return [
+      model.name,
+      model.model,
+      model.endpoint,
+      model.apiPath,
+      model.apiProtocol,
+      model.kind,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword))
+  })
 })
-const protocolOptions = computed(() => {
-  if (draft.value.kind === 'text') return textProtocolOptions
-  if (draft.value.kind === 'tts') return ttsProtocolOptions
-  if (draft.value.kind === 'video') return videoProtocolOptions
-  return imageProtocolOptions
+const savedApiRouteGroups = computed<ModelRouteGroup[]>(() => store.modelRouteGroups.filter((group) => group.profiles.length))
+const autoRouteGroupCount = computed(() => savedApiRouteGroups.value.filter((group) => group.profiles.length > 1).length)
+const savedApiChannelEntries = computed<ApiChannelEntry[]>(() => {
+  const groups = new Map<string, ModelProfile[]>()
+  for (const profile of managedModels.value) {
+    const endpoint = normalizedEndpoint(profile.endpoint).toLowerCase()
+    const key = endpoint ? `${profile.provider}:${endpoint}` : `${profile.provider}:profile:${profile.id}`
+    groups.set(key, [...(groups.get(key) ?? []), profile])
+  }
+
+  return Array.from(groups.entries()).map(([key, profiles]) => {
+    const sortedProfiles = sortApiChannelProfiles(profiles)
+    const profile = sortedProfiles[0]
+    return {
+      key,
+      profile,
+      profiles: sortedProfiles,
+      name: apiChannelName(profile),
+    }
+  })
 })
-const configuredModels = computed(() => [...store.imageModels, ...store.textModels, ...store.ttsModels, ...store.videoModels].filter(isConfiguredModel))
-const configuredModelCount = computed(() => configuredModels.value.length)
+const activeApiChannelEntry = computed(() => {
+  return savedApiChannelEntries.value.find((entry) => entry.profiles.some((profile) => profile.id === selectedRouteProfileId.value))
+    ?? savedApiChannelEntries.value[0]
+})
+const modelEditorTitle = computed(() => {
+  return store.models.some((model) => model.id === editingModelId.value) ? '编辑渠道' : '新增渠道'
+})
 
 type ModelStatusTone = 'ok' | 'warn' | 'error'
 
@@ -151,45 +251,118 @@ function promptCategoryLabel(category?: string): string {
 function defaultApiPath(kind: ModelCatalogEntry['kind'] | ModelProfile['kind']): string {
   const runtimeKind = kind === 'unknown' ? draft.value.kind : kind
   if (runtimeKind === 'text') return textProtocolOptions[0].path
-  if (runtimeKind === 'tts') return ttsProtocolOptions[0].path
   if (runtimeKind === 'video') return videoProtocolOptions[0].path
+  if (runtimeKind === 'tts') return ttsProtocolOptions[0].path
   return 'v1/images/generations'
 }
 
 function defaultApiProtocol(kind: ModelCatalogEntry['kind'] | ModelProfile['kind']): NonNullable<ModelProfile['apiProtocol']> {
   const runtimeKind = kind === 'unknown' ? draft.value.kind : kind
   if (runtimeKind === 'text') return 'openai-chat'
-  if (runtimeKind === 'tts') return 'openai-audio-speech'
   if (runtimeKind === 'video') return 'agnes-video'
+  if (runtimeKind === 'tts') return 'openai-audio-speech'
   return 'openai-images'
 }
 
-function applyProtocol(protocol: NonNullable<ModelProfile['apiProtocol']>): void {
+function allProtocolOptions(): ProtocolOption[] {
+  return [
+    ...textProtocolOptions,
+    ...imageProtocolOptions,
+    ...videoProtocolOptions,
+    ...ttsProtocolOptions,
+  ]
+}
+
+function apiPathForProtocol(protocol: NonNullable<ModelProfile['apiProtocol']>, kind: ModelCatalogEntry['kind'] | ModelProfile['kind'] = draft.value.kind): string {
+  return allProtocolOptions().find((option) => option.value === protocol)?.path ?? defaultApiPath(kind)
+}
+
+function inferApiProtocol(kind: ModelCatalogEntry['kind'] | ModelProfile['kind'] = draft.value.kind, endpoint = draft.value.endpoint, apiPath = draft.value.apiPath): NonNullable<ModelProfile['apiProtocol']> {
+  const runtimeKind = kind === 'unknown' ? draft.value.kind : kind
+  const normalizedEndpoint = endpoint.trim().toLowerCase()
+  const normalizedPath = apiPath?.trim().toLowerCase() ?? ''
+  if (normalizedEndpoint.includes('agnes') || channelPresetId.value === 'agnes') {
+    if (runtimeKind === 'video') return 'agnes-video'
+    if (runtimeKind === 'image') return 'agnes-image'
+  }
+  if (runtimeKind === 'text' && (normalizedEndpoint.includes('anthropic') || normalizedPath.includes('messages'))) return 'anthropic-messages'
+  if (runtimeKind === 'image' && (normalizedEndpoint.includes('dashscope') || normalizedEndpoint.includes('aliyuncs'))) return 'dashscope-wanxiang'
+  if (runtimeKind === 'image' && (normalizedEndpoint.includes('mgtv') || normalizedPath.includes('storyboard'))) return 'mgtv-storyboard'
+  return defaultApiProtocol(runtimeKind)
+}
+
+function syncAutoApiType(): void {
+  const protocol = inferApiProtocol()
   draft.value.apiProtocol = protocol
-  draft.value.apiPath = protocolOptions.value.find((option) => option.value === protocol)?.path ?? draft.value.apiPath ?? ''
-  if (protocol === 'mgtv-storyboard') {
-    draft.value.endpoint = draft.value.endpoint && !draft.value.endpoint.includes('aigc-llm.mgtv.com')
-      ? draft.value.endpoint
-      : 'https://aigc.mgtv.com'
-    draft.value.model = draft.value.model || '35'
-  }
-  if (protocol === 'agnes-image') {
-    draft.value.endpoint = draft.value.endpoint || 'https://apihub.agnes-ai.com'
-    draft.value.model = draft.value.model || 'agnes-image-2.1-flash'
-  }
-  if (protocol === 'agnes-video') {
-    draft.value.endpoint = draft.value.endpoint || 'https://apihub.agnes-ai.com'
-    draft.value.model = draft.value.model || 'agnes-video-v2.0'
-  }
+  draft.value.apiPath = apiPathForProtocol(protocol, draft.value.kind)
 }
 
 function applyDraftKind(kind: ModelProfile['kind']): void {
   draft.value.kind = kind
-  applyProtocol(defaultApiProtocol(kind))
+  syncAutoApiType()
 }
 
-function apiKeyLabel(model: ModelProfile): string {
-  return model.apiProtocol === 'mgtv-storyboard' ? 'Access Key' : 'API Key'
+function toggleModelManagerKindFilter(kind: ModelProfile['kind']): void {
+  modelManagerKindFilter.value = modelManagerKindFilter.value === kind ? 'all' : kind
+}
+
+function applyDefaultModelKind(kind: ChannelDefaultModelKind): void {
+  channelDefaultModelKind.value = kind
+  if (kind === 'all') {
+    syncAutoApiType()
+  } else {
+    applyDraftKind(kind)
+  }
+  if (remoteModelCatalog.value.length) setSelectedChannelModels(channelSelectableModelOptions.value)
+}
+
+function applyChannelPreset(presetId: ChannelPresetId): void {
+  const preset = channelPresets.find((item) => item.id === presetId)
+  if (!preset) return
+  channelPresetId.value = preset.id
+  draft.value.name = preset.name
+  if (preset.id === 'openai') {
+    channelBaseUrlPresetId.value = 'openai'
+    draft.value.endpoint = preset.endpoint
+    if (draft.value.kind === 'video') draft.value.kind = 'image'
+  } else if (preset.id === 'agnes') {
+    channelBaseUrlPresetId.value = 'agnes'
+    draft.value.endpoint = preset.endpoint
+    if (draft.value.kind !== 'video') draft.value.kind = 'image'
+  } else {
+    channelBaseUrlPresetId.value = 'custom'
+    if (channelBaseUrlPresets.some((item) => item.endpoint && item.endpoint === draft.value.endpoint)) {
+      draft.value.endpoint = ''
+    }
+  }
+  syncAutoApiType()
+}
+
+function applyBaseUrlPreset(presetId: ChannelBaseUrlPresetId): void {
+  const preset = channelBaseUrlPresets.find((item) => item.id === presetId)
+  if (!preset) return
+  channelBaseUrlPresetId.value = preset.id
+  if (preset.endpoint) draft.value.endpoint = preset.endpoint
+  if (preset.id === 'openai' || preset.id === 'agnes') {
+    channelPresetId.value = preset.id
+    draft.value.name = channelPresets.find((item) => item.id === preset.id)?.name ?? draft.value.name
+  }
+  syncAutoApiType()
+}
+
+function syncPresetStateFromModel(model: ModelProfile): void {
+  const endpoint = model.endpoint.trim().toLowerCase()
+  const name = model.name.trim().toLowerCase()
+  if (name === 'openai' || endpoint.includes('api.openai.com')) {
+    channelPresetId.value = 'openai'
+    channelBaseUrlPresetId.value = 'openai'
+  } else if (name === 'agnes' || endpoint.includes('agnes')) {
+    channelPresetId.value = 'agnes'
+    channelBaseUrlPresetId.value = 'agnes'
+  } else {
+    channelPresetId.value = 'third-party'
+    channelBaseUrlPresetId.value = 'custom'
+  }
 }
 
 function modelKindLabel(kind: ModelCatalogEntry['kind'] | ModelProfile['kind']): string {
@@ -203,32 +376,206 @@ function modelKindLabel(kind: ModelCatalogEntry['kind'] | ModelProfile['kind']):
   return labels[kind] ?? kind
 }
 
-function setPrimaryLabel(kind: ModelProfile['kind']): string {
-  if (kind === 'text') return '设为主文本模型'
-  if (kind === 'tts') return '设为主语音模型'
-  if (kind === 'video') return '设为主视频模型'
-  return '设为主图像模型'
-}
-
-function modelIdLabel(model: ModelProfile): string {
-  return model.apiProtocol === 'mgtv-storyboard' ? 'Style ID' : '模型 ID'
-}
-
-function modelIdPlaceholder(model: ModelProfile): string {
-  if (model.apiProtocol === 'mgtv-storyboard') return '35'
-  if (model.kind === 'text') return 'gpt-4o-mini'
-  if (model.kind === 'tts') return 'tts-1'
-  if (model.kind === 'video') return 'agnes-video-v2.0'
-  return 'gpt-image-1'
+function channelDefaultKindLabel(): string {
+  return channelDefaultModelKind.value === 'all' ? '模型' : `${modelKindLabel(channelDefaultModelKind.value)}模型`
 }
 
 function isModelTesting(id: string): boolean {
   return testingModelIds.value.has(id)
 }
 
-function isConfiguredModel(model: ModelProfile): boolean {
-  const needsSecret = model.apiProtocol === 'mgtv-storyboard'
-  return model.provider !== 'local-preview' && Boolean(model.endpoint.trim() && model.apiKey.trim() && (!needsSecret || model.apiSecret?.trim()) && model.model.trim())
+function routeUpstreamUrl(model: ModelProfile): string {
+  const endpoint = model.endpoint.trim()
+  const apiPath = model.apiPath?.trim()
+  if (!endpoint) return '未配置 BASE_URL'
+  if (!apiPath) return endpoint
+  return `${endpoint.replace(/\/+$/g, '')}/${apiPath.replace(/^\/+/g, '')}`
+}
+
+function routeCatalogUrl(model: ModelProfile): string {
+  const endpoint = model.endpoint.trim()
+  if (!endpoint) return '未配置模型接口'
+  return `${endpoint.replace(/\/+$/g, '')}/v1/models`
+}
+
+function endpointPresetId(endpoint: string): Extract<ChannelPresetId, 'openai' | 'agnes'> | '' {
+  const normalized = normalizedEndpoint(endpoint).toLowerCase()
+  const preset = channelBaseUrlPresets.find((item) => item.endpoint && normalizedEndpoint(item.endpoint).toLowerCase() === normalized)
+  return preset?.id === 'openai' || preset?.id === 'agnes' ? preset.id : ''
+}
+
+function endpointChannelName(endpoint: string): string {
+  const presetId = endpointPresetId(endpoint)
+  return presetId ? channelPresets.find((item) => item.id === presetId)?.name ?? '' : ''
+}
+
+function resolvedDraftChannelName(): string {
+  const endpointName = endpointChannelName(draft.value.endpoint)
+  const typedName = draft.value.name.trim()
+  if (endpointName && (!typedName || typedName === '第三方接口' || channelBaseUrlPresetId.value !== 'custom')) return endpointName
+  return typedName || channelPresets.find((preset) => preset.id === channelPresetId.value)?.name || endpointName || '第三方接口'
+}
+
+function apiChannelName(profile: ModelProfile): string {
+  return endpointChannelName(profile.endpoint) || profile.name.trim() || '第三方接口'
+}
+
+function protocolTypeLabel(protocol: NonNullable<ModelProfile['apiProtocol']>): string {
+  if (protocol.startsWith('openai')) return 'openai'
+  if (protocol.startsWith('agnes')) return 'agnes'
+  if (protocol === 'dashscope-wanxiang') return 'dashscope'
+  if (protocol === 'mgtv-storyboard') return 'mgtv'
+  if (protocol === 'anthropic-messages') return 'anthropic'
+  return protocol
+}
+
+function apiTypeLabel(model: ModelProfile): string {
+  return protocolTypeLabel(model.apiProtocol ?? defaultApiProtocol(model.kind))
+}
+
+function catalogApiTypeLabel(model: ModelCatalogEntry): string {
+  return protocolTypeLabel(model.apiProtocol)
+}
+
+function apiRouteStatusClass(model: ModelProfile): string {
+  return `api-status-${modelStatusMeta(model).tone}`
+}
+
+function routeResponseLabel(model: ModelProfile): string {
+  if (!model.lastCheckedAt) return '未检测'
+  const date = new Date(model.lastCheckedAt)
+  if (Number.isNaN(date.getTime())) return '已检测'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
+}
+
+function apiChannelStatusProfile(entry: ApiChannelEntry): ModelProfile {
+  return entry.profiles.find((profile) => profile.status === 'connected')
+    ?? entry.profiles.find((profile) => profile.status === 'untested')
+    ?? entry.profile
+}
+
+function apiChannelStatusLabel(entry: ApiChannelEntry): string {
+  if (entry.profiles.some((profile) => profile.status === 'connected')) return '启用'
+  if (entry.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return '禁用'
+  return modelStatusMeta(apiChannelStatusProfile(entry)).label
+}
+
+function apiChannelStatusClass(entry: ApiChannelEntry): string {
+  if (entry.profiles.some((profile) => profile.status === 'connected')) return 'api-status-ok'
+  if (entry.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return 'api-status-error'
+  return apiRouteStatusClass(apiChannelStatusProfile(entry))
+}
+
+function apiChannelResponseLabel(entry: ApiChannelEntry): string {
+  const checkedProfiles = entry.profiles
+    .filter((profile) => profile.lastCheckedAt)
+    .sort((left, right) => new Date(right.lastCheckedAt ?? '').getTime() - new Date(left.lastCheckedAt ?? '').getTime())
+  return checkedProfiles[0] ? routeResponseLabel(checkedProfiles[0]) : '未检测'
+}
+
+function apiChannelTypeLabel(entry: ApiChannelEntry): string {
+  const presetId = endpointPresetId(entry.profile.endpoint)
+  if (presetId) return presetId
+  return Array.from(new Set(entry.profiles.map(apiTypeLabel))).join(' / ')
+}
+
+function apiChannelModelCountLabel(entry: ApiChannelEntry): string {
+  const enabledCount = entry.profiles.filter((profile) => modelStatusMeta(profile).tone !== 'error').length
+  return `${enabledCount} / ${entry.profiles.length}`
+}
+
+function apiChannelModelSummary(entry: ApiChannelEntry): string {
+  const kinds = Array.from(new Set(entry.profiles.map((profile) => modelKindLabel(profile.kind))))
+  return `${kinds.join(' / ')} · ${entry.profiles.length} 个模型`
+}
+
+function sortApiChannelProfiles(profiles: ModelProfile[]): ModelProfile[] {
+  return profiles.slice().sort((left, right) => {
+    const leftSelected = selectedRouteProfileId.value && left.id === selectedRouteProfileId.value ? 0 : 1
+    const rightSelected = selectedRouteProfileId.value && right.id === selectedRouteProfileId.value ? 0 : 1
+    if (leftSelected !== rightSelected) return leftSelected - rightSelected
+    if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1
+    if (left.status !== right.status) {
+      if (left.status === 'connected') return -1
+      if (right.status === 'connected') return 1
+    }
+    return left.model.localeCompare(right.model)
+  })
+}
+
+function selectApiChannel(entry: ApiChannelEntry): void {
+  selectedRouteProfileId.value = entry.profile.id
+}
+
+function removeApiChannelWithConfirmation(entry: ApiChannelEntry): void {
+  const confirmed = window.confirm(`确定删除 API 渠道「${entry.name}」及 ${entry.profiles.length} 个模型？此操作会移除该上游的 API 地址、Key 和连接状态。`)
+  if (!confirmed) return
+
+  for (const profile of entry.profiles) store.removeModel(profile.id)
+  if (entry.profiles.some((profile) => editingModelId.value === profile.id)) closeModelEditor()
+}
+
+function modelManagerMetaLine(model: ModelProfile): string {
+  const parts = [
+    `发布: ${routeResponseLabel(model)}`,
+    modelKindLabel(model.kind),
+    apiTypeLabel(model),
+    model.apiPath?.trim() ? `路径: ${model.apiPath.trim()}` : '路径: 默认',
+  ]
+  if (model.endpoint.trim()) parts.push(routeUpstreamUrl(model))
+  return parts.join(' / ')
+}
+
+function resetChannelEditorState(model: ModelProfile): void {
+  channelRemark.value = model.note ?? ''
+  apiKeyVisible.value = false
+  channelDefaultModelKind.value = 'all'
+  selectedCatalogModelIds.value = model.model.trim() ? new Set([model.model]) : new Set()
+  modelCatalogSearch.value = ''
+  modelCatalogNotice.value = ''
+  remoteModelCatalog.value = []
+  syncPresetStateFromModel(model)
+  syncAutoApiType()
+}
+
+function applyChannelModelToDraft(item: ModelCatalogEntry): void {
+  draft.value.model = item.model
+  if (item.kind !== 'unknown') {
+    draft.value.kind = item.kind
+    draft.value.apiPath = item.apiPath
+    draft.value.apiProtocol = item.apiProtocol
+  }
+}
+
+function setSelectedChannelModels(items: ModelCatalogEntry[]): void {
+  selectedCatalogModelIds.value = new Set(items.map((item) => item.model))
+  if (items[0]) applyChannelModelToDraft(items[0])
+  else draft.value.model = ''
+}
+
+function toggleChannelModel(item: ModelCatalogEntry, event: Event): void {
+  const checked = event.target instanceof HTMLInputElement ? event.target.checked : false
+  const next = new Set(selectedCatalogModelIds.value)
+  if (checked) next.add(item.model)
+  else next.delete(item.model)
+  selectedCatalogModelIds.value = next
+  const selected = channelModelOptions.value.filter((option) => next.has(option.model))
+  if (selected[0]) applyChannelModelToDraft(selected[0])
+  else draft.value.model = ''
+}
+
+function selectAllChannelModels(): void {
+  setSelectedChannelModels(channelSelectableModelOptions.value)
+}
+
+function clearChannelModelSelection(): void {
+  setSelectedChannelModels([])
 }
 
 async function testModelConnection(id: string): Promise<void> {
@@ -244,66 +591,38 @@ async function testModelConnection(id: string): Promise<void> {
   }
 }
 
-async function testAllConfiguredModels(): Promise<void> {
-  if (testingAllModels.value) return
-
-  const models = configuredModels.value.filter((model) => !isModelTesting(model.id))
-  if (!models.length) {
-    store.notify('暂无已配置完整的模型可检测', 'info')
-    return
-  }
-
-  testingAllModels.value = true
-  testingModelIds.value = new Set([...testingModelIds.value, ...models.map((model) => model.id)])
-  let completed = 0
-  try {
-    for (const model of models) {
-      await store.testModel(model.id)
-      completed += 1
-    }
-    store.notify(`已完成 ${completed} 个模型连接检测`, 'info')
-  } finally {
-    const next = new Set(testingModelIds.value)
-    models.forEach((model) => next.delete(model.id))
-    testingModelIds.value = next
-    testingAllModels.value = false
-  }
-}
-
 function newModel(kind: ModelProfile['kind'] = 'image'): void {
   const defaultName = kind === 'text'
-    ? 'OpenAI Compatible Text'
-    : kind === 'tts'
-      ? 'OpenAI Compatible TTS'
-      : kind === 'video'
-        ? 'Agnes Video'
-        : 'OpenAI Compatible Image'
-  const defaultModel = kind === 'text'
-    ? 'gpt-4o-mini'
-    : kind === 'tts'
-      ? 'tts-1'
-      : kind === 'video'
-        ? 'agnes-video-v2.0'
-        : 'gpt-image-1'
+    ? '第三方大语言模型'
+    : kind === 'video'
+      ? '第三方视频模型'
+      : kind === 'tts'
+        ? '第三方语音模型'
+        : '第三方生图模型'
   draft.value = {
     id: createId('model'),
     name: defaultName,
     provider: 'openai-compatible',
-    endpoint: kind === 'video' ? 'https://apihub.agnes-ai.com' : 'https://api.openai.com',
+    endpoint: '',
     apiPath: defaultApiPath(kind),
     apiProtocol: defaultApiProtocol(kind),
     apiKey: '',
     apiSecret: '',
-    model: defaultModel,
+    headersJson: '',
+    note: '',
+    model: '',
     kind,
     isPrimary: false,
     status: 'untested',
   }
+  resetChannelEditorState(draft.value)
+  applyChannelPreset('third-party')
   editingModelId.value = draft.value.id
 }
 
 function editModel(model: ModelProfile): void {
   draft.value = { ...model }
+  resetChannelEditorState(model)
   editingModelId.value = model.id
 }
 
@@ -315,12 +634,62 @@ function removeModelWithConfirmation(model: ModelProfile): void {
   if (editingModelId.value === model.id) closeModelEditor()
 }
 
+function setPrimaryManagedModel(model: ModelProfile): void {
+  if (model.isPrimary) return
+  if (model.kind === 'image') store.setPrimaryImageModel(model.id)
+  else if (model.kind === 'video') store.setPrimaryVideoModel(model.id)
+  else if (model.kind === 'text') store.setPrimaryTextModel(model.id)
+  else store.setPrimaryTtsModel(model.id)
+}
+
+function normalizedEndpoint(value: string): string {
+  return value.trim().replace(/\/+$/g, '')
+}
+
+function existingModelForCatalogItem(item: ModelCatalogEntry): ModelProfile | undefined {
+  const endpoint = normalizedEndpoint(draft.value.endpoint)
+  return store.models.find((model) => (
+    model.model.trim() === item.model
+    && normalizedEndpoint(model.endpoint) === endpoint
+  ))
+}
+
+function modelProfileFromCatalogItem(item: ModelCatalogEntry): ModelProfile {
+  const kind = item.kind === 'unknown' ? draft.value.kind : item.kind
+  const apiProtocol = item.kind === 'unknown' ? inferApiProtocol(kind, draft.value.endpoint, draft.value.apiPath) : item.apiProtocol
+  const apiPath = item.kind === 'unknown' ? apiPathForProtocol(apiProtocol, kind) : item.apiPath
+  const existing = existingModelForCatalogItem(item)
+
+  return {
+    ...draft.value,
+    id: existing?.id ?? createId('model'),
+    name: resolvedDraftChannelName(),
+    model: item.model,
+    kind,
+    apiProtocol,
+    apiPath,
+    isPrimary: existing?.isPrimary ?? false,
+    status: draft.value.status,
+    lastCheckedAt: draft.value.lastCheckedAt,
+    headersJson: '',
+    note: channelRemark.value.trim(),
+  }
+}
+
 function saveDraft(): void {
   if (!draft.value.name.trim()) {
     store.notify('请输入模型名称', 'error')
     return
   }
-  store.saveModel({ ...draft.value })
+  syncAutoApiType()
+  if (remoteModelCatalog.value.length) {
+    const profiles = selectedChannelModels.value.map((item) => modelProfileFromCatalogItem(item))
+    store.replaceModelsForEndpoint(draft.value.endpoint, profiles, `已同步 ${profiles.length} 个模型到模型管理`)
+    closeModelEditor()
+    return
+  }
+
+  store.saveModel({ ...draft.value, headersJson: '', note: channelRemark.value.trim() })
   closeModelEditor()
 }
 
@@ -328,14 +697,9 @@ function closeModelEditor(): void {
   editingModelId.value = ''
 }
 
-function isCreatingModel(kind: ModelProfile['kind']): boolean {
-  return Boolean(editingModelId.value && draft.value.kind === kind && !store.models.some((model) => model.id === editingModelId.value))
-}
-
-async function openModelCatalog(): Promise<void> {
-  modelCatalogSearch.value = ''
-  selectedCatalogModelId.value = ''
-  modelCatalogOpen.value = true
+async function refreshChannelModelCatalog(): Promise<void> {
+  syncAutoApiType()
+  selectedCatalogModelIds.value = new Set()
   modelCatalogNotice.value = ''
   remoteModelCatalog.value = []
 
@@ -347,38 +711,22 @@ async function openModelCatalog(): Promise<void> {
       model: item.id,
       provider: 'openai-compatible',
       endpoint: draft.value.endpoint,
-      apiPath: defaultApiPath(item.kind),
-      apiProtocol: defaultApiProtocol(item.kind),
+      apiProtocol: inferApiProtocol(item.kind, draft.value.endpoint, draft.value.apiPath),
+      apiPath: apiPathForProtocol(inferApiProtocol(item.kind, draft.value.endpoint, draft.value.apiPath), item.kind),
     }))
+    if (remoteModelCatalog.value.length) setSelectedChannelModels(channelSelectableModelOptions.value)
+    draft.value.status = remoteModels.length ? 'connected' : 'failed'
+    draft.value.lastCheckedAt = new Date().toISOString()
     modelCatalogNotice.value = remoteModels.length
-      ? `已从模型接口获取 ${remoteModels.length} 个模型`
+      ? `已从模型接口获取 ${remoteModels.length} 个模型，当前勾选 ${selectedChannelModelCount.value} 个${channelDefaultKindLabel()}`
       : '接口未返回模型，请检查 BASE_URL、API Key 或手动填写模型 ID'
   } catch (error) {
+    draft.value.status = 'failed'
+    draft.value.lastCheckedAt = new Date().toISOString()
     modelCatalogNotice.value = error instanceof Error ? error.message : '模型列表获取失败'
   } finally {
     modelCatalogLoading.value = false
   }
-}
-
-function applyCatalogModel(): void {
-  const item = remoteModelCatalog.value.find((model) => model.model === selectedCatalogModelId.value)
-  if (!item) {
-    store.notify('请选择一个模型', 'error')
-    return
-  }
-  draft.value = {
-    ...draft.value,
-    name: item.name,
-    model: item.model,
-    provider: item.provider,
-    kind: item.kind === 'unknown' ? draft.value.kind : item.kind,
-    endpoint: item.endpoint,
-    apiPath: item.apiPath,
-    apiProtocol: item.apiProtocol,
-    status: 'untested',
-  }
-  modelCatalogOpen.value = false
-  store.notify(`已选择模型：${item.name}`)
 }
 
 function importFile(event: Event): void {
@@ -424,10 +772,11 @@ function handlePromptDrop(event: DragEvent): void {
 function exportPrompts(): void {
   const blob = new Blob([JSON.stringify(store.prompts, null, 2)], { type: 'application/json' })
   const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
+  const url = URL.createObjectURL(blob)
+  link.href = url
   link.download = 'samimage-v3-prompts.json'
   link.click()
-  URL.revokeObjectURL(link.href)
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
   store.notify('Prompts 已导出')
 }
 
@@ -472,13 +821,6 @@ function resetCoverPresetsWithConfirmation(): void {
   if (!confirmed) return
 
   store.resetCoverPresets()
-}
-
-async function chooseDefaultOutputDir(): Promise<void> {
-  const directory = await pickDirectory(store.settings.defaultOutputDir)
-  if (!directory) return
-
-  store.saveSettings({ defaultOutputDir: directory })
 }
 
 function openCoverPresetModal(): void {
@@ -543,471 +885,172 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
       <button class="settings-tab" :class="{ active: activeTab === 'system' }" type="button" @click="activeTab = 'system'">系统设置</button>
     </div>
 
-    <section v-if="activeTab === 'models'" class="settings-section">
-      <div class="model-bulk-bar">
-        <div>
-          <strong>连接检测</strong>
-          <p class="muted">一次检测全部已配置模型，包含图像、视频和文本模型。</p>
+    <section v-if="activeTab === 'models'" class="settings-section model-console-section">
+      <div class="model-config-console" data-testid="cc-switch-model-config">
+        <div class="model-console-header">
+          <div class="model-console-brand">
+            <strong>gotbot</strong>
+            <span>模型管理、API 渠道和自动路由</span>
+          </div>
+          <div class="model-console-summary">
+            <span class="model-console-toggle">
+              <i />
+              自动路由
+            </span>
+            <span class="model-console-stat">{{ managedModelCount }} 模型</span>
+            <span class="model-console-stat">{{ savedApiChannelEntries.length }} 渠道</span>
+          </div>
+          <div class="model-console-actions" aria-label="渠道操作">
+            <button class="console-add-button console-add-channel-button" type="button" @click="newModel('image')" aria-label="新增 API 渠道">
+              <Plus :size="16" />
+              新增渠道
+            </button>
+          </div>
         </div>
-        <button
-          class="btn-primary model-test-all-button"
-          :class="{ loading: testingAllModels }"
-          type="button"
-          :disabled="testingAllModels || !configuredModelCount"
-          :aria-busy="testingAllModels"
-          @click="testAllConfiguredModels"
-        >
-          <LoaderCircle v-if="testingAllModels" class="spin-icon" :size="16" />
-          <TestTube2 v-else :size="16" />
-          {{ testingAllModels ? '检测全部中' : configuredModelCount ? `检测全部 (${configuredModelCount})` : '暂无可检测' }}
-        </button>
-      </div>
 
-      <div class="settings-section-block">
-        <div class="settings-section-title">
-          图像模型
-          <span class="count">{{ store.imageModels.length }} 已配置</span>
-        </div>
-        <div class="stack">
-          <article v-for="model in store.imageModels" :key="model.id" class="model-card" data-testid="image-model-card">
-            <div class="model-card-head">
-              <div class="model-card-heading">
-                <h3>
-                  <span class="dot" />
-                  {{ model.name }}
-                </h3>
-                <p class="muted">{{ model.endpoint || '未配置 API 地址' }}</p>
+        <div class="settings-section-block model-management-panel" data-testid="model-management-panel">
+          <div class="model-management-head">
+            <div class="settings-section-title">
+              模型管理
+              <span class="count">{{ managedModelCount }} 个模型</span>
+            </div>
+          </div>
+
+          <div class="model-management-toolbar">
+            <input
+              v-model="modelManagerSearch"
+              type="search"
+              placeholder="搜索/创建模型名 / 显示名 / 渠道"
+              aria-label="搜索模型"
+            />
+            <div class="model-kind-tabs" aria-label="模型类型筛选">
+              <button
+                v-for="tab in modelManagerKindTabs"
+                :key="tab.value"
+                type="button"
+                :class="{ active: modelManagerKindFilter === tab.value }"
+                @click="toggleModelManagerKindFilter(tab.value)"
+              >
+                {{ tab.label }}
+              </button>
+            </div>
+          </div>
+
+          <div class="model-management-list" data-testid="managed-model-list">
+            <article
+              v-for="model in filteredManagedModels"
+              :key="model.id"
+              class="model-management-row"
+              :class="{ primary: model.isPrimary }"
+              data-testid="managed-model-row"
+            >
+              <span class="model-row-drag" aria-hidden="true">⋮⋮</span>
+              <span class="model-provider-avatar" aria-hidden="true">{{ apiTypeLabel(model).slice(0, 1).toUpperCase() }}</span>
+              <div class="model-row-main">
+                <div class="model-row-title">
+                  <strong>{{ model.model || model.name }}</strong>
+                  <span class="model-provider-name">{{ model.name }}</span>
+                  <span v-if="model.isPrimary" class="model-primary-badge">默认</span>
+                  <span class="api-status-badge" :class="apiRouteStatusClass(model)">{{ modelStatusMeta(model).label }}</span>
+                </div>
+                <p>{{ modelManagerMetaLine(model) }}</p>
               </div>
-              <div class="model-card-badges">
-                <span v-if="model.isPrimary" class="primary-badge">
-                  <Star :size="12" fill="currentColor" />
-                  主模型
-                </span>
+              <div class="model-row-actions">
+                <button class="btn-soft btn-sm" type="button" @click="editModel(model)">编辑</button>
                 <button
-                  v-else
-                  class="set-primary-btn"
+                  class="btn-soft btn-sm model-test-button"
+                  :class="{ loading: isModelTesting(model.id) }"
                   type="button"
-                  @click="store.setPrimaryImageModel(model.id)"
+                  :disabled="isModelTesting(model.id)"
+                  :aria-busy="isModelTesting(model.id)"
+                  @click="testModelConnection(model.id)"
                 >
-                  设为主模型
+                  {{ isModelTesting(model.id) ? '测速中' : '测速' }}
                 </button>
-                <span class="status-pill">
-                  <span class="status-dot" :class="{ warn: modelStatusMeta(model).tone === 'warn', error: modelStatusMeta(model).tone === 'error' }" />
-                  {{ modelStatusMeta(model).label }}
-                </span>
-              </div>
-            </div>
-            <div class="model-card-body">
-              <div class="model-fields">
-                <div class="field">
-                  <label>{{ modelIdLabel(model) }}</label>
-                  <div class="field-value">{{ model.model || `未设置${modelIdLabel(model)}` }}</div>
-                </div>
-                <div class="field">
-                  <label>Provider</label>
-                  <div class="field-value">{{ model.provider }}</div>
-                </div>
-                <div class="field">
-                  <label>{{ apiKeyLabel(model) }}</label>
-                  <div class="field-value">{{ model.apiKey ? '已填写' : '未填写' }}</div>
-                </div>
-                <div v-if="model.apiProtocol === 'mgtv-storyboard'" class="field">
-                  <label>Secret Key</label>
-                  <div class="field-value">{{ model.apiSecret ? '已填写' : '未填写' }}</div>
-                </div>
-              </div>
-              <div class="model-actions">
-                <div class="btn-row">
-                  <button class="btn-soft btn-sm" data-testid="edit-model-button" type="button" @click="editModel(model)">编辑</button>
-                  <button
-                    class="btn-soft btn-sm model-test-button"
-                    :class="{ loading: isModelTesting(model.id) }"
-                    type="button"
-                    :disabled="isModelTesting(model.id)"
-                    :aria-busy="isModelTesting(model.id)"
-                    @click="testModelConnection(model.id)"
-                  >
-                    <LoaderCircle v-if="isModelTesting(model.id)" class="spin-icon" :size="14" />
-                    <TestTube2 v-else :size="14" />
-                    {{ isModelTesting(model.id) ? '检测中' : '检测连接' }}
-                  </button>
-                  <button class="btn-danger btn-sm" type="button" @click="removeModelWithConfirmation(model)">删除</button>
-                </div>
-              </div>
-            </div>
-            <div v-if="editingModelId === model.id" class="editor-card inline-editor" data-testid="model-editor">
-              <div class="inline-editor-head">
-                <h3>编辑 {{ model.name }}</h3>
-                <button class="btn-soft btn-sm" type="button" @click="closeModelEditor">取消</button>
-              </div>
-              <div class="grid grid-2">
-                <div class="field"><label for="model-draft-name">模型名称</label><input id="model-draft-name" v-model="draft.name" /></div>
-                <div class="field"><label for="model-draft-kind">类型</label><select id="model-draft-kind" v-model="draft.kind" @change="applyDraftKind(draft.kind)"><option value="image">图像</option><option value="text">文本</option><option value="tts">语音</option><option value="video">视频</option></select></div>
-                <div class="field"><label for="model-draft-protocol">协议/接口形态</label><select id="model-draft-protocol" v-model="draft.apiProtocol" @change="applyProtocol(draft.apiProtocol ?? defaultApiProtocol(draft.kind))"><option v-for="option in protocolOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-                <div class="field"><label for="model-draft-endpoint">上游 BASE_URL</label><input id="model-draft-endpoint" v-model="draft.endpoint" placeholder="https://your-relay.example.com" /></div>
-                <div class="field"><label for="model-draft-api-path">接口路径</label><input id="model-draft-api-path" v-model="draft.apiPath" placeholder="v1/images/generations" /></div>
-                <div class="field"><label for="model-draft-id">{{ modelIdLabel(draft) }}</label><input id="model-draft-id" v-model="draft.model" :placeholder="modelIdPlaceholder(draft)" /></div>
-                <div class="field"><label for="model-draft-api-key">{{ apiKeyLabel(draft) }}</label><input id="model-draft-api-key" v-model="draft.apiKey" type="password" :placeholder="draft.apiProtocol === 'mgtv-storyboard' ? 'Access Key' : 'sk-...'" /></div>
-                <div v-if="draft.apiProtocol === 'mgtv-storyboard'" class="field"><label for="model-draft-api-secret">Secret Key</label><input id="model-draft-api-secret" v-model="draft.apiSecret" type="password" placeholder="Secret Key" /></div>
-                <label class="toggle-line">
-                  <input
-                    v-model="draft.isPrimary"
-                    type="checkbox"
-                    :aria-label="setPrimaryLabel(draft.kind)"
-                  />
-                  {{ setPrimaryLabel(draft.kind) }}
+                <button class="btn-icon" type="button" :aria-label="`删除 ${model.name}`" @click="removeModelWithConfirmation(model)">
+                  <Trash2 :size="14" />
+                </button>
+                <label class="model-primary-switch" :aria-label="`设为默认 ${model.name}`">
+                  <input type="checkbox" :checked="model.isPrimary" @change="setPrimaryManagedModel(model)">
+                  <span />
                 </label>
               </div>
-              <div class="btn-row">
-                <button v-if="draft.apiProtocol !== 'mgtv-storyboard'" class="btn-soft" type="button" @click="openModelCatalog">获取模型</button>
-                <button class="btn-primary" type="button" @click="saveDraft">保存模型</button>
-              </div>
+            </article>
+            <div v-if="!filteredManagedModels.length" class="empty-inline">
+              <strong>暂无匹配模型</strong>
+              <span>调整筛选条件，或点击新增渠道创建上游配置。</span>
             </div>
-          </article>
-        </div>
-        <button class="btn-soft add-row-btn" type="button" @click="newModel('image')">
-          <Plus :size="14" />
-          新增图像模型
-        </button>
-        <div v-if="isCreatingModel('image')" class="editor-card card inline-editor" data-testid="model-editor">
-          <div class="inline-editor-head">
-            <h3>新增图像模型</h3>
-            <button class="btn-soft btn-sm" type="button" @click="closeModelEditor">取消</button>
-          </div>
-          <div class="grid grid-2">
-            <div class="field"><label for="model-draft-name-new-image">模型名称</label><input id="model-draft-name-new-image" v-model="draft.name" /></div>
-            <div class="field"><label for="model-draft-kind-new-image">类型</label><select id="model-draft-kind-new-image" v-model="draft.kind" @change="applyDraftKind(draft.kind)"><option value="image">图像</option><option value="text">文本</option><option value="tts">语音</option><option value="video">视频</option></select></div>
-            <div class="field"><label for="model-draft-protocol-new-image">协议/接口形态</label><select id="model-draft-protocol-new-image" v-model="draft.apiProtocol" @change="applyProtocol(draft.apiProtocol ?? defaultApiProtocol(draft.kind))"><option v-for="option in protocolOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-            <div class="field"><label for="model-draft-endpoint-new-image">上游 BASE_URL</label><input id="model-draft-endpoint-new-image" v-model="draft.endpoint" placeholder="https://your-relay.example.com" /></div>
-            <div class="field"><label for="model-draft-api-path-new-image">接口路径</label><input id="model-draft-api-path-new-image" v-model="draft.apiPath" placeholder="v1/images/generations" /></div>
-            <div class="field"><label for="model-draft-id-new-image">{{ modelIdLabel(draft) }}</label><input id="model-draft-id-new-image" v-model="draft.model" :placeholder="modelIdPlaceholder(draft)" /></div>
-            <div class="field"><label for="model-draft-api-key-new-image">{{ apiKeyLabel(draft) }}</label><input id="model-draft-api-key-new-image" v-model="draft.apiKey" type="password" :placeholder="draft.apiProtocol === 'mgtv-storyboard' ? 'Access Key' : 'sk-...'" /></div>
-            <div v-if="draft.apiProtocol === 'mgtv-storyboard'" class="field"><label for="model-draft-api-secret-new-image">Secret Key</label><input id="model-draft-api-secret-new-image" v-model="draft.apiSecret" type="password" placeholder="Secret Key" /></div>
-            <label class="toggle-line">
-              <input
-                v-model="draft.isPrimary"
-                type="checkbox"
-                :aria-label="setPrimaryLabel(draft.kind)"
-              />
-              {{ setPrimaryLabel(draft.kind) }}
-            </label>
-          </div>
-          <div class="btn-row">
-            <button v-if="draft.apiProtocol !== 'mgtv-storyboard'" class="btn-soft" type="button" @click="openModelCatalog">获取模型</button>
-            <button class="btn-primary" type="button" @click="saveDraft">保存模型</button>
           </div>
         </div>
-      </div>
 
-      <div class="settings-section-block">
-        <div class="settings-section-title">
-          视频模型
-          <span class="count">{{ store.videoModels.length }} 已配置</span>
-        </div>
-        <div class="stack">
-          <article v-for="model in store.videoModels" :key="model.id" class="model-card" data-testid="video-model-card">
-            <div class="model-card-head">
-              <div class="model-card-heading">
-                <h3><span class="dot" />{{ model.name }}</h3>
-                <p class="muted">{{ model.endpoint || '未配置 API 地址' }}</p>
-              </div>
-              <div class="model-card-badges">
-                <span v-if="model.isPrimary" class="primary-badge"><Star :size="12" fill="currentColor" />主视频模型</span>
-                <button v-else class="set-primary-btn" type="button" @click="store.setPrimaryVideoModel(model.id)">设为主视频模型</button>
-                <span class="status-pill"><span class="status-dot" :class="{ warn: modelStatusMeta(model).tone === 'warn', error: modelStatusMeta(model).tone === 'error' }" />{{ modelStatusMeta(model).label }}</span>
-              </div>
-            </div>
-            <div class="model-card-body">
-              <div class="model-fields">
-                <div class="field"><label>模型 ID</label><div class="field-value">{{ model.model || '未设置模型 ID' }}</div></div>
-                <div class="field"><label>协议</label><div class="field-value">{{ model.apiProtocol }}</div></div>
-                <div class="field"><label>API Key</label><div class="field-value">{{ model.apiKey ? '已填写' : '未填写' }}</div></div>
-              </div>
-              <div class="model-actions">
-                <div class="btn-row">
-                  <button class="btn-soft btn-sm" type="button" @click="editModel(model)">编辑</button>
-                  <button class="btn-soft btn-sm model-test-button" :class="{ loading: isModelTesting(model.id) }" type="button" :disabled="isModelTesting(model.id)" @click="testModelConnection(model.id)">
-                    <LoaderCircle v-if="isModelTesting(model.id)" class="spin-icon" :size="14" />
-                    <TestTube2 v-else :size="14" />
-                    {{ isModelTesting(model.id) ? '检测中' : '检测连接' }}
-                  </button>
-                  <button class="btn-danger btn-sm" type="button" @click="removeModelWithConfirmation(model)">删除</button>
-                </div>
-              </div>
-            </div>
-            <div v-if="editingModelId === model.id" class="editor-card inline-editor" data-testid="model-editor">
-              <div class="inline-editor-head"><h3>编辑 {{ model.name }}</h3><button class="btn-soft btn-sm" type="button" @click="closeModelEditor">取消</button></div>
-              <div class="grid grid-2">
-                <div class="field"><label for="model-draft-name-video">模型名称</label><input id="model-draft-name-video" v-model="draft.name" /></div>
-                <div class="field"><label for="model-draft-kind-video">类型</label><select id="model-draft-kind-video" v-model="draft.kind" @change="applyDraftKind(draft.kind)"><option value="image">图像</option><option value="text">文本</option><option value="tts">语音</option><option value="video">视频</option></select></div>
-                <div class="field"><label for="model-draft-protocol-video">协议/接口形态</label><select id="model-draft-protocol-video" v-model="draft.apiProtocol" @change="applyProtocol(draft.apiProtocol ?? defaultApiProtocol(draft.kind))"><option v-for="option in protocolOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-                <div class="field"><label for="model-draft-endpoint-video">上游 BASE_URL</label><input id="model-draft-endpoint-video" v-model="draft.endpoint" placeholder="https://apihub.agnes-ai.com" /></div>
-                <div class="field"><label for="model-draft-api-path-video">接口路径</label><input id="model-draft-api-path-video" v-model="draft.apiPath" placeholder="v1/videos" /></div>
-                <div class="field"><label for="model-draft-id-video">模型 ID</label><input id="model-draft-id-video" v-model="draft.model" :placeholder="modelIdPlaceholder(draft)" /></div>
-                <div class="field"><label for="model-draft-api-key-video">API Key</label><input id="model-draft-api-key-video" v-model="draft.apiKey" type="password" placeholder="sk-..." /></div>
-                <label class="toggle-line"><input v-model="draft.isPrimary" type="checkbox" :aria-label="setPrimaryLabel(draft.kind)" />{{ setPrimaryLabel(draft.kind) }}</label>
-              </div>
-              <div class="btn-row"><button class="btn-primary" type="button" @click="saveDraft">保存模型</button></div>
-            </div>
-          </article>
-        </div>
-        <button class="btn-soft add-row-btn" type="button" @click="newModel('video')"><Plus :size="14" />新增视频模型</button>
-        <div v-if="isCreatingModel('video')" class="editor-card card inline-editor" data-testid="model-editor">
-          <div class="inline-editor-head"><h3>新增视频模型</h3><button class="btn-soft btn-sm" type="button" @click="closeModelEditor">取消</button></div>
-          <div class="grid grid-2">
-            <div class="field"><label for="model-draft-name-new-video">模型名称</label><input id="model-draft-name-new-video" v-model="draft.name" /></div>
-            <div class="field"><label for="model-draft-protocol-new-video">协议/接口形态</label><select id="model-draft-protocol-new-video" v-model="draft.apiProtocol" @change="applyProtocol(draft.apiProtocol ?? defaultApiProtocol(draft.kind))"><option v-for="option in protocolOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-            <div class="field"><label for="model-draft-endpoint-new-video">上游 BASE_URL</label><input id="model-draft-endpoint-new-video" v-model="draft.endpoint" placeholder="https://apihub.agnes-ai.com" /></div>
-            <div class="field"><label for="model-draft-api-path-new-video">接口路径</label><input id="model-draft-api-path-new-video" v-model="draft.apiPath" placeholder="v1/videos" /></div>
-            <div class="field"><label for="model-draft-id-new-video">模型 ID</label><input id="model-draft-id-new-video" v-model="draft.model" :placeholder="modelIdPlaceholder(draft)" /></div>
-            <div class="field"><label for="model-draft-api-key-new-video">API Key</label><input id="model-draft-api-key-new-video" v-model="draft.apiKey" type="password" placeholder="sk-..." /></div>
-            <label class="toggle-line"><input v-model="draft.isPrimary" type="checkbox" :aria-label="setPrimaryLabel(draft.kind)" />{{ setPrimaryLabel(draft.kind) }}</label>
+        <div class="settings-section-block api-route-panel" data-testid="api-route-groups">
+          <div class="settings-section-title">
+            API 渠道
+            <span class="count">{{ savedApiChannelEntries.length }} 个上游 · {{ managedModelCount }} 个模型 · {{ autoRouteGroupCount }} 个自动回退组</span>
           </div>
-          <div class="btn-row"><button class="btn-primary" type="button" @click="saveDraft">保存模型</button></div>
-        </div>
-      </div>
-
-      <div class="settings-section-block">
-        <div class="settings-section-title">
-          文本模型（润色提示词）
-          <span class="count">{{ store.textModels.length }} 已配置</span>
-        </div>
-        <div class="stack">
-          <article v-for="model in store.textModels" :key="model.id" class="model-card text-model-card" data-testid="text-model-card">
-            <div class="model-card-head">
-              <div class="model-card-heading">
-                <h3>
-                  <span class="dot text-dot" />
-                  {{ model.name }}
-                </h3>
-                <p class="muted">{{ model.endpoint || '未配置 API 地址' }}</p>
-              </div>
-              <div class="model-card-badges">
-                <span v-if="model.isPrimary" class="primary-badge">
-                  <Star :size="12" fill="currentColor" />
-                  主文本模型
-                </span>
-                <button
-                  v-else
-                  class="set-primary-btn"
-                  type="button"
-                  @click="store.setPrimaryTextModel(model.id)"
+          <div v-if="savedApiChannelEntries.length" class="api-switch-table-wrap">
+            <table class="api-switch-table" data-testid="api-channel-table">
+              <thead>
+                <tr>
+                  <th>渠道名称</th>
+                  <th>API 类型</th>
+                  <th>Base URL</th>
+                  <th>状态</th>
+                  <th>响应</th>
+                  <th>模型数</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="entry in savedApiChannelEntries"
+                  :key="entry.key"
+                  :class="{ active: activeApiChannelEntry?.key === entry.key }"
                 >
-                  设为主文本模型
-                </button>
-                <span class="status-pill">
-                  <span class="status-dot" :class="{ warn: modelStatusMeta(model).tone === 'warn', error: modelStatusMeta(model).tone === 'error' }" />
-                  {{ modelStatusMeta(model).label }}
-                </span>
-              </div>
-            </div>
-            <div class="model-card-body">
-              <div class="model-fields">
-                <div class="field">
-                  <label>{{ modelIdLabel(model) }}</label>
-                  <div class="field-value">{{ model.model || `未设置${modelIdLabel(model)}` }}</div>
-                </div>
-                <div class="field">
-                  <label>Provider</label>
-                  <div class="field-value">{{ model.provider }}</div>
-                </div>
-                <div class="field">
-                  <label>{{ apiKeyLabel(model) }}</label>
-                  <div class="field-value">{{ model.apiKey ? '已填写' : '未填写' }}</div>
-                </div>
-              </div>
-              <div class="model-actions">
-                <div class="btn-row">
-                  <button class="btn-soft btn-sm" data-testid="edit-model-button" type="button" @click="editModel(model)">编辑</button>
-                  <button
-                    class="btn-soft btn-sm model-test-button"
-                    :class="{ loading: isModelTesting(model.id) }"
-                    type="button"
-                    :disabled="isModelTesting(model.id)"
-                    :aria-busy="isModelTesting(model.id)"
-                    @click="testModelConnection(model.id)"
-                  >
-                    <LoaderCircle v-if="isModelTesting(model.id)" class="spin-icon" :size="14" />
-                    <TestTube2 v-else :size="14" />
-                    {{ isModelTesting(model.id) ? '检测中' : '检测连接' }}
-                  </button>
-                  <button class="btn-danger btn-sm" type="button" @click="removeModelWithConfirmation(model)">删除</button>
-                </div>
-              </div>
-            </div>
-            <div v-if="editingModelId === model.id" class="editor-card inline-editor" data-testid="model-editor">
-              <div class="inline-editor-head">
-                <h3>编辑 {{ model.name }}</h3>
-                <button class="btn-soft btn-sm" type="button" @click="closeModelEditor">取消</button>
-              </div>
-              <div class="grid grid-2">
-                <div class="field"><label for="model-draft-name-text">模型名称</label><input id="model-draft-name-text" v-model="draft.name" /></div>
-                <div class="field"><label for="model-draft-kind-text">类型</label><select id="model-draft-kind-text" v-model="draft.kind" @change="applyDraftKind(draft.kind)"><option value="image">图像</option><option value="text">文本</option><option value="tts">语音</option><option value="video">视频</option></select></div>
-                <div class="field"><label for="model-draft-protocol-text">协议/接口形态</label><select id="model-draft-protocol-text" v-model="draft.apiProtocol" @change="applyProtocol(draft.apiProtocol ?? defaultApiProtocol(draft.kind))"><option v-for="option in protocolOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-                <div class="field"><label for="model-draft-endpoint-text">上游 BASE_URL</label><input id="model-draft-endpoint-text" v-model="draft.endpoint" placeholder="https://your-relay.example.com" /></div>
-                <div class="field"><label for="model-draft-api-path-text">接口路径</label><input id="model-draft-api-path-text" v-model="draft.apiPath" placeholder="v1/chat/completions" /></div>
-                <div class="field"><label for="model-draft-id-text">{{ modelIdLabel(draft) }}</label><input id="model-draft-id-text" v-model="draft.model" :placeholder="modelIdPlaceholder(draft)" /></div>
-                <div class="field"><label for="model-draft-api-key-text">{{ apiKeyLabel(draft) }}</label><input id="model-draft-api-key-text" v-model="draft.apiKey" type="password" :placeholder="draft.apiProtocol === 'mgtv-storyboard' ? 'Access Key' : 'sk-...'" /></div>
-                <div v-if="draft.apiProtocol === 'mgtv-storyboard'" class="field"><label for="model-draft-api-secret-text">Secret Key</label><input id="model-draft-api-secret-text" v-model="draft.apiSecret" type="password" placeholder="Secret Key" /></div>
-                <label class="toggle-line">
-                  <input
-                    v-model="draft.isPrimary"
-                    type="checkbox"
-                    :aria-label="setPrimaryLabel(draft.kind)"
-                  />
-                  {{ setPrimaryLabel(draft.kind) }}
-                </label>
-              </div>
-              <div class="btn-row">
-                <button v-if="draft.apiProtocol !== 'mgtv-storyboard'" class="btn-soft" type="button" @click="openModelCatalog">获取模型</button>
-                <button class="btn-primary" type="button" @click="saveDraft">保存模型</button>
-              </div>
-            </div>
-          </article>
-          <div v-if="!store.textModels.length" class="empty-state">
-            <strong>暂无文本模型</strong>
-            <span>添加一个文本模型后，工作台的提示词润色会走远端模型。</span>
+                  <td>
+                    <div class="api-channel-name">
+                      <strong>{{ entry.name }}</strong>
+                      <span>{{ apiChannelModelSummary(entry) }}</span>
+                    </div>
+                  </td>
+                  <td><span class="api-type-pill">{{ apiChannelTypeLabel(entry) }}</span></td>
+                  <td><span class="api-base-url">{{ routeCatalogUrl(entry.profile) }}</span></td>
+                  <td><span class="api-status-badge" :class="apiChannelStatusClass(entry)">{{ apiChannelStatusLabel(entry) }}</span></td>
+                  <td><span class="api-response-text">{{ apiChannelResponseLabel(entry) }}</span></td>
+                  <td><span class="api-model-count">{{ apiChannelModelCountLabel(entry) }}</span></td>
+                  <td>
+                    <div class="api-table-actions">
+                      <button
+                        class="btn-soft btn-sm"
+                        type="button"
+                        :disabled="activeApiChannelEntry?.key === entry.key"
+                        @click="selectApiChannel(entry)"
+                      >
+                        {{ activeApiChannelEntry?.key === entry.key ? '当前' : '选用' }}
+                      </button>
+                      <button class="btn-soft btn-sm" type="button" @click="editModel(entry.profile)">编辑</button>
+                      <button
+                        class="btn-soft btn-sm model-test-button"
+                        :class="{ loading: isModelTesting(entry.profile.id) }"
+                        type="button"
+                        :disabled="isModelTesting(entry.profile.id)"
+                        :aria-busy="isModelTesting(entry.profile.id)"
+                        @click="testModelConnection(entry.profile.id)"
+                      >
+                        {{ isModelTesting(entry.profile.id) ? '检测中' : '检测' }}
+                      </button>
+                      <button class="btn-danger btn-sm" type="button" @click="removeApiChannelWithConfirmation(entry)">删除</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="empty-inline">
+            <strong>暂无 API 渠道</strong>
+            <span>保存图像、视频、文本或语音模型后，会在这里按上游 Base URL 聚合显示渠道。</span>
           </div>
         </div>
-        <button class="btn-soft add-row-btn" type="button" @click="newModel('text')">
-          <Plus :size="14" />
-          新增文本模型
-        </button>
-        <div v-if="isCreatingModel('text')" class="editor-card card inline-editor" data-testid="model-editor">
-          <div class="inline-editor-head">
-            <h3>新增文本模型</h3>
-            <button class="btn-soft btn-sm" type="button" @click="closeModelEditor">取消</button>
-          </div>
-          <div class="grid grid-2">
-            <div class="field"><label for="model-draft-name-new-text">模型名称</label><input id="model-draft-name-new-text" v-model="draft.name" /></div>
-            <div class="field"><label for="model-draft-kind-new-text">类型</label><select id="model-draft-kind-new-text" v-model="draft.kind" @change="applyDraftKind(draft.kind)"><option value="image">图像</option><option value="text">文本</option><option value="tts">语音</option><option value="video">视频</option></select></div>
-            <div class="field"><label for="model-draft-protocol-new-text">协议/接口形态</label><select id="model-draft-protocol-new-text" v-model="draft.apiProtocol" @change="applyProtocol(draft.apiProtocol ?? defaultApiProtocol(draft.kind))"><option v-for="option in protocolOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-            <div class="field"><label for="model-draft-endpoint-new-text">上游 BASE_URL</label><input id="model-draft-endpoint-new-text" v-model="draft.endpoint" placeholder="https://your-relay.example.com" /></div>
-            <div class="field"><label for="model-draft-api-path-new-text">接口路径</label><input id="model-draft-api-path-new-text" v-model="draft.apiPath" placeholder="v1/chat/completions" /></div>
-            <div class="field"><label for="model-draft-id-new-text">{{ modelIdLabel(draft) }}</label><input id="model-draft-id-new-text" v-model="draft.model" :placeholder="modelIdPlaceholder(draft)" /></div>
-            <div class="field"><label for="model-draft-api-key-new-text">{{ apiKeyLabel(draft) }}</label><input id="model-draft-api-key-new-text" v-model="draft.apiKey" type="password" :placeholder="draft.apiProtocol === 'mgtv-storyboard' ? 'Access Key' : 'sk-...'" /></div>
-            <div v-if="draft.apiProtocol === 'mgtv-storyboard'" class="field"><label for="model-draft-api-secret-new-text">Secret Key</label><input id="model-draft-api-secret-new-text" v-model="draft.apiSecret" type="password" placeholder="Secret Key" /></div>
-            <label class="toggle-line">
-              <input
-                v-model="draft.isPrimary"
-                type="checkbox"
-                :aria-label="setPrimaryLabel(draft.kind)"
-              />
-              {{ setPrimaryLabel(draft.kind) }}
-            </label>
-          </div>
-          <div class="btn-row">
-            <button v-if="draft.apiProtocol !== 'mgtv-storyboard'" class="btn-soft" type="button" @click="openModelCatalog">获取模型</button>
-            <button class="btn-primary" type="button" @click="saveDraft">保存模型</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-section-block">
-        <div class="settings-section-title">
-          语音模型
-          <span class="count">{{ store.ttsModels.length }} 已配置</span>
-        </div>
-        <div class="stack">
-          <article v-for="model in store.ttsModels" :key="model.id" class="model-card" data-testid="tts-model-card">
-            <div class="model-card-head">
-              <div class="model-card-heading">
-                <h3>
-                  <span class="dot" />
-                  {{ model.name }}
-                </h3>
-                <p class="muted">{{ model.endpoint || '未配置 API 地址' }}</p>
-              </div>
-              <div class="model-card-badges">
-                <span v-if="model.isPrimary" class="primary-badge">
-                  <Star :size="12" fill="currentColor" />
-                  主模型
-                </span>
-                <button
-                  v-else
-                  class="set-primary-btn"
-                  type="button"
-                  @click="store.setPrimaryTtsModel(model.id)"
-                >
-                  设为主模型
-                </button>
-                <span class="status-pill">
-                  <span class="status-dot" :class="{ warn: modelStatusMeta(model).tone === 'warn', error: modelStatusMeta(model).tone === 'error' }" />
-                  {{ modelStatusMeta(model).label }}
-                </span>
-              </div>
-            </div>
-            <div class="model-card-body">
-              <div class="model-fields">
-                <div class="field">
-                  <label>{{ modelIdLabel(model) }}</label>
-                  <div class="field-value">{{ model.model || `未设置${modelIdLabel(model)}` }}</div>
-                </div>
-                <div class="field">
-                  <label>Provider</label>
-                  <div class="field-value">{{ model.provider }}</div>
-                </div>
-                <div class="field">
-                  <label>{{ apiKeyLabel(model) }}</label>
-                  <div class="field-value">{{ model.apiKey ? '已填写' : '未填写' }}</div>
-                </div>
-              </div>
-              <div class="model-actions">
-                <div class="btn-row">
-                  <button class="btn-soft btn-sm" type="button" @click="editModel(model)">编辑</button>
-                  <button
-                    class="btn-soft btn-sm model-test-button"
-                    :class="{ loading: isModelTesting(model.id) }"
-                    type="button"
-                    :disabled="isModelTesting(model.id)"
-                    :aria-busy="isModelTesting(model.id)"
-                    @click="testModelConnection(model.id)"
-                  >
-                    <LoaderCircle v-if="isModelTesting(model.id)" class="spin-icon" :size="14" />
-                    <TestTube2 v-else :size="14" />
-                    {{ isModelTesting(model.id) ? '检测中' : '检测连接' }}
-                  </button>
-                  <button class="btn-danger btn-sm" type="button" @click="removeModelWithConfirmation(model)">删除</button>
-                </div>
-              </div>
-            </div>
-            <div v-if="editingModelId === model.id" class="editor-card inline-editor" data-testid="model-editor">
-              <div class="inline-editor-head">
-                <h3>编辑 {{ model.name }}</h3>
-                <button class="btn-soft btn-sm" type="button" @click="closeModelEditor">取消</button>
-              </div>
-              <div class="grid grid-2">
-                <div class="field"><label :for="`model-draft-name-tts-${model.id}`">模型名称</label><input :id="`model-draft-name-tts-${model.id}`" v-model="draft.name" /></div>
-                <div class="field"><label :for="`model-draft-kind-tts-${model.id}`">类型</label><select :id="`model-draft-kind-tts-${model.id}`" v-model="draft.kind" @change="applyDraftKind(draft.kind)"><option value="image">图像</option><option value="text">文本</option><option value="tts">语音</option><option value="video">视频</option></select></div>
-                <div class="field"><label :for="`model-draft-protocol-tts-${model.id}`">协议/接口形态</label><select :id="`model-draft-protocol-tts-${model.id}`" v-model="draft.apiProtocol" @change="applyProtocol(draft.apiProtocol ?? defaultApiProtocol(draft.kind))"><option v-for="option in protocolOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-                <div class="field"><label :for="`model-draft-endpoint-tts-${model.id}`">上游 BASE_URL</label><input :id="`model-draft-endpoint-tts-${model.id}`" v-model="draft.endpoint" placeholder="https://your-relay.example.com" /></div>
-                <div class="field"><label :for="`model-draft-api-path-tts-${model.id}`">接口路径</label><input :id="`model-draft-api-path-tts-${model.id}`" v-model="draft.apiPath" placeholder="v1/audio/speech" /></div>
-                <div class="field"><label :for="`model-draft-id-tts-${model.id}`">{{ modelIdLabel(draft) }}</label><input :id="`model-draft-id-tts-${model.id}`" v-model="draft.model" :placeholder="modelIdPlaceholder(draft)" /></div>
-                <div class="field"><label :for="`model-draft-api-key-tts-${model.id}`">{{ apiKeyLabel(draft) }}</label><input :id="`model-draft-api-key-tts-${model.id}`" v-model="draft.apiKey" type="password" placeholder="sk-..." /></div>
-                <label class="toggle-line">
-                  <input
-                    v-model="draft.isPrimary"
-                    type="checkbox"
-                    :aria-label="setPrimaryLabel(draft.kind)"
-                  />
-                  {{ setPrimaryLabel(draft.kind) }}
-                </label>
-              </div>
-              <div class="btn-row">
-                <button v-if="draft.apiProtocol !== 'mgtv-storyboard'" class="btn-soft" type="button" @click="openModelCatalog">获取模型</button>
-                <button class="btn-primary" type="button" @click="saveDraft">保存模型</button>
-              </div>
-            </div>
-          </article>
-          <div v-if="!store.ttsModels.length" class="empty-state">
-            <strong>暂无语音模型</strong>
-            <span>添加一个 TTS 模型后，未来的语音合成功能会走远端模型。</span>
-          </div>
-        </div>
-        <button class="btn-soft add-row-btn" type="button" @click="newModel('tts')">
-          <Plus :size="14" />
-          新增语音模型
-        </button>
       </div>
     </section>
 
@@ -1157,16 +1200,6 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         <div class="card-body stack">
           <h2>系统设置</h2>
           <div class="field">
-            <label for="default-output-dir">默认输出目录</label>
-            <div class="directory-picker">
-              <input id="default-output-dir" v-model="store.settings.defaultOutputDir" />
-              <button class="btn-soft" type="button" @click="chooseDefaultOutputDir">
-                <FolderOpen :size="16" />
-                重新选择目录
-              </button>
-            </div>
-          </div>
-          <div class="field">
             <label for="default-export-format">默认导出格式</label>
             <select id="default-export-format" v-model="store.settings.defaultExportFormat">
               <option v-for="option in exportFormatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -1229,6 +1262,124 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
       </div>
     </section>
 
+    <div v-if="editingModelId" class="modal-overlay api-channel-modal-overlay" @click.self="closeModelEditor">
+      <div class="modal api-channel-modal" data-testid="api-channel-editor-modal">
+        <div class="modal-head api-channel-modal-head">
+          <div>
+            <h2>{{ modelEditorTitle }}</h2>
+            <p class="muted">选择渠道预设后自动检测 API 类型、路径和模型能力。</p>
+          </div>
+          <button class="btn-icon" type="button" @click="closeModelEditor">×</button>
+        </div>
+
+        <div class="modal-body api-channel-modal-body">
+          <div class="field">
+            <label for="model-draft-name-unified">渠道名称</label>
+            <select id="model-draft-name-unified" v-model="channelPresetId" @change="applyChannelPreset(channelPresetId)">
+              <option v-for="preset in channelPresets" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
+            </select>
+          </div>
+          <div class="auto-api-type-card">
+            <span>API 类型</span>
+            <strong>自动检测</strong>
+            <small>{{ autoApiTypeSummary }}</small>
+          </div>
+          <div class="field">
+            <label for="model-draft-endpoint-unified">Base URL</label>
+            <select id="model-draft-base-url-preset" v-model="channelBaseUrlPresetId" @change="applyBaseUrlPreset(channelBaseUrlPresetId)">
+              <option v-for="preset in channelBaseUrlPresets" :key="preset.id" :value="preset.id">{{ preset.label }}{{ preset.endpoint ? ` · ${preset.endpoint}` : '' }}</option>
+            </select>
+            <div class="channel-input-with-status">
+              <input id="model-draft-endpoint-unified" v-model="draft.endpoint" placeholder="https://your-relay.example.com" @blur="syncAutoApiType" />
+              <span>✓ {{ routeResponseLabel(draft) }}</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="model-draft-api-key-unified">API Key</label>
+            <div class="channel-api-key-row">
+              <input
+                id="model-draft-api-key-unified"
+                v-model="draft.apiKey"
+                :type="apiKeyVisible ? 'text' : 'password'"
+                :placeholder="draft.apiProtocol === 'mgtv-storyboard' ? 'Access Key' : 'sk-...'"
+              />
+              <button class="btn-soft btn-sm" type="button" @click="apiKeyVisible = !apiKeyVisible">{{ apiKeyVisible ? '隐藏' : '显示' }}</button>
+            </div>
+          </div>
+          <div v-if="draft.apiProtocol === 'mgtv-storyboard'" class="field">
+            <label for="model-draft-api-secret-unified">Secret Key</label>
+            <input id="model-draft-api-secret-unified" v-model="draft.apiSecret" type="password" placeholder="Secret Key" />
+          </div>
+
+          <div class="field">
+            <label for="model-draft-note-unified">备注</label>
+            <textarea id="model-draft-note-unified" v-model="channelRemark" rows="3" placeholder="可填写渠道额度、用途或备用说明" />
+          </div>
+
+          <div class="field">
+            <label for="model-draft-kind-unified">默认模型类型</label>
+            <select id="model-draft-kind-unified" v-model="channelDefaultModelKind" @change="applyDefaultModelKind(channelDefaultModelKind)">
+              <option value="all">全部模型</option>
+              <option value="image">图像</option>
+              <option value="video">视频</option>
+              <option value="text">文本</option>
+              <option value="tts">语音</option>
+            </select>
+          </div>
+
+          <button class="channel-fetch-button" type="button" :disabled="modelCatalogLoading" @click="refreshChannelModelCatalog">
+            {{ modelCatalogLoading ? '正在获取模型列表…' : '获取模型列表' }}
+          </button>
+          <p v-if="modelCatalogNotice" class="muted channel-fetch-notice">{{ modelCatalogNotice }}</p>
+
+          <div class="channel-model-panel">
+            <div class="channel-model-window-tabs">
+              <button type="button" :class="{ active: modelBenchmarkWindow === '3m' }" @click="modelBenchmarkWindow = '3m'">3个月</button>
+              <button type="button" :class="{ active: modelBenchmarkWindow === '6m' }" @click="modelBenchmarkWindow = '6m'">6个月</button>
+              <button type="button" :class="{ active: modelBenchmarkWindow === '12m' }" @click="modelBenchmarkWindow = '12m'">12个月</button>
+            </div>
+            <div class="channel-model-search-row">
+              <input v-model="modelCatalogSearch" placeholder="搜索/创建模型" />
+              <button class="btn-soft btn-sm" type="button" @click="selectAllChannelModels">全选</button>
+              <button class="btn-soft btn-sm" type="button" @click="clearChannelModelSelection">清除</button>
+            </div>
+            <div class="channel-model-list">
+              <label v-for="item in channelModelOptions" :key="`${item.source}:${item.model}`" class="channel-model-option">
+                <input
+                  type="checkbox"
+                  :value="item.model"
+                  :checked="selectedCatalogModelIds.has(item.model)"
+                  @change="toggleChannelModel(item, $event)"
+                />
+                <span>{{ item.model }}</span>
+                <em>{{ catalogApiTypeLabel(item) }}</em>
+              </label>
+              <div v-if="!channelModelOptions.length" class="empty-inline channel-model-empty">
+                <strong>暂无模型</strong>
+                <span>填写模型 ID，或点击“获取模型列表”。</span>
+              </div>
+            </div>
+            <div class="channel-model-footer">
+              <span>{{ selectedChannelModelCount }} / {{ channelModelOptions.length }}</span>
+              <button
+                class="btn-soft btn-sm"
+                type="button"
+                :disabled="!store.models.some((model) => model.id === draft.id) || isModelTesting(draft.id)"
+                @click="testModelConnection(draft.id)"
+              >
+                模型测速（{{ channelModelOptions.length }}）
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-foot api-channel-modal-foot">
+          <button class="btn-soft" type="button" @click="closeModelEditor">取消</button>
+          <button class="btn-primary" type="button" @click="saveDraft">保存</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="coverPresetModalOpen" class="modal-overlay" @click.self="coverPresetModalOpen = false">
       <div class="modal small">
         <div class="modal-head">
@@ -1264,71 +1415,6 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         </div>
       </div>
     </div>
-
-    <div v-if="modelCatalogOpen" class="modal-overlay" @click.self="modelCatalogOpen = false">
-      <div class="modal">
-        <div class="modal-head">
-          <div>
-            <h2>获取模型</h2>
-            <p class="muted">从当前 BASE_URL 拼接 /v1/models 获取真实模型列表；接口失败或为空时请手动填写模型 ID。</p>
-          </div>
-          <button class="btn-icon" type="button" @click="modelCatalogOpen = false">×</button>
-        </div>
-        <div class="modal-body stack">
-          <div class="model-fetch-status">
-            <span>{{ modelCatalogLoading ? '正在获取模型列表...' : modelCatalogNotice || '选择一个模型填入当前草稿。' }}</span>
-            <button class="btn-soft btn-sm" type="button" :disabled="modelCatalogLoading" @click="openModelCatalog">刷新</button>
-          </div>
-          <p v-if="!modelCatalogLoading && modelCatalogCount.total > 0" class="muted">
-            共 {{ modelCatalogCount.total }} 个模型
-            <template v-if="modelCatalogCount.match > 0 && modelCatalogCount.other > 0">
-              · {{ modelCatalogCount.match }} 个匹配「{{ modelKindLabel(draft.kind) }}」
-              · {{ modelCatalogCount.other }} 个其他类型
-            </template>
-          </p>
-          <input v-model="modelCatalogSearch" class="model-fetch-search" placeholder="搜索模型…" />
-          <div class="model-fetch-grid">
-            <button
-              v-for="item in filteredModelCatalog"
-              :key="`${item.source}:${item.model}`"
-              class="model-fetch-item"
-              :class="{
-                selected: selectedCatalogModelId === item.model,
-                'model-fetch-incompatible': item.kind !== 'unknown' && item.kind !== draft.kind,
-              }"
-              type="button"
-              @click="selectedCatalogModelId = item.model"
-            >
-              <span class="mf-dot" />
-              <span class="mf-info">
-                <strong class="mf-name">{{ item.name }}</strong>
-                <span class="mf-id">{{ item.model }}</span>
-                <span class="mf-kind" :class="`mf-kind-${item.kind}`">{{ modelKindLabel(item.kind) }}</span>
-                <span
-                  v-if="item.kind !== 'unknown' && item.kind !== draft.kind"
-                  class="mf-hint"
-                >切换到「{{ modelKindLabel(item.kind) }}」模式以使用</span>
-              </span>
-            </button>
-          </div>
-          <p v-if="!filteredModelCatalog.length && !modelCatalogLoading" class="muted">没有匹配的模型。</p>
-        </div>
-        <p v-if="selectedCatalogIncompatible" class="muted model-catalog-blocked">
-          当前在配置「{{ modelKindLabel(draft.kind) }}」模型，所选模型是「{{ modelKindLabel(selectedCatalogKind) }}」类型，请先切换类型再确认。
-        </p>
-        <div class="modal-foot">
-          <button class="btn-soft" type="button" @click="modelCatalogOpen = false">取消</button>
-          <button
-            class="btn-primary"
-            type="button"
-            :disabled="!selectedCatalogModelId || selectedCatalogIncompatible"
-            @click="applyCatalogModel"
-          >
-            确认选择
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -1357,45 +1443,163 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
   gap: 22px;
 }
 
-.settings-section-block {
-  display: grid;
-  gap: 12px;
+.model-console-section {
+  gap: 0;
 }
 
-.model-bulk-bar {
-  display: flex;
+.model-config-console {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(226, 214, 202, 0.78);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 25% 10%, rgba(255, 132, 78, 0.14), transparent 34%),
+    linear-gradient(145deg, rgba(255, 248, 241, 0.92), rgba(250, 244, 238, 0.74));
+  box-shadow: 0 26px 70px rgba(97, 54, 24, 0.13), var(--elev-raised);
+}
+
+.model-console-header {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
   gap: 14px;
   min-width: 0;
   padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 1px solid rgba(226, 214, 202, 0.82);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 30px rgba(67, 43, 29, 0.08);
 }
 
-.model-bulk-bar > div {
+.model-console-brand {
+  display: grid;
+  gap: 3px;
   min-width: 0;
 }
 
-.model-bulk-bar strong {
-  display: block;
-  margin-bottom: 4px;
+.model-console-brand strong {
+  color: #13a779;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: -0.04em;
+  line-height: 1;
 }
 
-.model-test-all-button {
+.model-console-brand span {
+  color: #7a6f66;
+  font-size: 12px;
+}
+
+.model-console-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-console-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   flex: 0 0 auto;
-  min-width: 142px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #6b625a;
+  background: rgba(244, 239, 234, 0.96);
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.model-test-all-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-  transform: none;
+.model-console-toggle i {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(128, 134, 146, 0.28);
 }
 
-.model-test-all-button.loading:disabled {
-  cursor: wait;
+.model-console-toggle i::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #335cff;
+  box-shadow: 0 3px 8px rgba(51, 92, 255, 0.28);
+}
+
+.model-console-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-console-stat {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(224, 214, 204, 0.78);
+  border-radius: 999px;
+  color: #6b625a;
+  background: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.console-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 1px solid rgba(224, 214, 204, 0.94);
+  color: #4b423b;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 18px rgba(67, 43, 29, 0.06);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.console-add-button {
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 8px;
+  color: white;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.console-add-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff7a45, #ff9b4a);
+}
+
+.model-console-section .settings-section-block {
+  border: 1px solid rgba(226, 214, 202, 0.82);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 12px 34px rgba(67, 43, 29, 0.07);
+}
+
+.model-console-section .settings-section-block {
+  padding: 14px;
+}
+
+.settings-section-block {
+  display: grid;
+  gap: 12px;
 }
 
 .settings-section-title {
@@ -1525,6 +1729,566 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   min-width: 0;
+}
+
+.api-channel-modal-overlay {
+  background: rgba(17, 24, 39, 0.72);
+}
+
+.api-channel-modal {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+  color: #111827;
+}
+
+.api-channel-modal-head,
+.api-channel-modal-foot {
+  padding: 14px 18px;
+}
+
+.api-channel-modal-head h2 {
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.api-channel-modal-body {
+  display: grid;
+  gap: 12px;
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding: 14px 18px;
+}
+
+.api-channel-modal .field {
+  gap: 6px;
+}
+
+.channel-input-with-status,
+.channel-api-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.channel-input-with-status input {
+  border-color: rgba(16, 185, 129, 0.38);
+}
+
+.channel-input-with-status span {
+  color: #10b981;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.channel-model-window-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 8px;
+}
+
+.channel-model-window-tabs button {
+  min-height: 30px;
+  color: #4b5563;
+  background: #fff;
+  border-right: 1px solid rgba(229, 231, 235, 0.95);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.channel-model-window-tabs button:last-child {
+  border-right: 0;
+}
+
+.channel-model-window-tabs button.active {
+  color: #fff;
+  background: #111;
+}
+
+.auto-api-type-card {
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: center;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.auto-api-type-card span {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.auto-api-type-card strong {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.auto-api-type-card small {
+  grid-column: 1 / -1;
+  color: #4b5563;
+  font-size: 11px;
+}
+
+.api-channel-modal textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.channel-fetch-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  width: 100%;
+  border-radius: 8px;
+  color: #fff;
+  background: #111;
+  font-weight: 900;
+}
+
+.channel-fetch-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.channel-fetch-notice {
+  margin-top: -4px;
+}
+
+.channel-model-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 10px;
+  background: rgba(249, 250, 251, 0.68);
+}
+
+.channel-model-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.channel-model-list {
+  display: grid;
+  min-height: 138px;
+  max-height: 176px;
+  overflow-y: auto;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.channel-model-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(243, 244, 246, 0.95);
+  color: #111827;
+  font-size: 12px;
+}
+
+.channel-model-option:last-child {
+  border-bottom: 0;
+}
+
+.channel-model-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-model-option em {
+  color: #6b7280;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.channel-model-empty {
+  min-height: 116px;
+  border: 0;
+  border-radius: 0;
+}
+
+.channel-model-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.api-channel-modal-foot {
+  border-top: 1px solid rgba(229, 231, 235, 0.95);
+}
+
+.model-management-panel {
+  gap: 14px;
+}
+
+.model-management-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.model-management-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.model-management-toolbar input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 10px;
+  color: #111827;
+  background: rgba(255, 255, 255, 0.94);
+  font-size: 12px;
+  outline: none;
+}
+
+.model-management-toolbar input:focus {
+  border-color: rgba(17, 24, 39, 0.42);
+  box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.06);
+}
+
+.model-kind-tabs {
+  display: inline-grid;
+  grid-auto-flow: column;
+  overflow: hidden;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 10px;
+  background: rgba(249, 250, 251, 0.94);
+}
+
+.model-kind-tabs button {
+  min-width: 70px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #6b7280;
+  border-right: 1px solid rgba(229, 231, 235, 0.95);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.model-kind-tabs button:last-child {
+  border-right: 0;
+}
+
+.model-kind-tabs button.active {
+  color: #111827;
+  background: #fff;
+  box-shadow: inset 0 -2px 0 #111827;
+}
+
+.model-management-list {
+  display: grid;
+  gap: 10px;
+}
+
+.model-management-row {
+  display: grid;
+  grid-template-columns: 22px 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.model-management-row:hover,
+.model-management-row.primary {
+  border-color: rgba(16, 185, 129, 0.42);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.model-management-row:hover {
+  transform: translateY(-1px);
+}
+
+.model-row-drag {
+  color: #c4c9d2;
+  font-size: 16px;
+  letter-spacing: -0.2em;
+}
+
+.model-provider-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(229, 231, 235, 0.96);
+  border-radius: 10px;
+  color: #111827;
+  background: rgba(248, 250, 252, 0.98);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.model-row-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.model-row-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.model-row-title strong,
+.model-row-main p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-row-title strong {
+  max-width: min(360px, 42vw);
+  color: #111827;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.model-provider-name {
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.model-primary-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.model-row-main p {
+  max-width: 100%;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.model-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.model-primary-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.model-primary-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.model-primary-switch span {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(107, 114, 128, 0.22);
+  transition: background 140ms ease;
+}
+
+.model-primary-switch span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16);
+  transition: transform 140ms ease;
+}
+
+.model-primary-switch input:checked + span {
+  background: #111827;
+}
+
+.model-primary-switch input:checked + span::after {
+  transform: translateX(14px);
+}
+
+.api-route-panel {
+  gap: 14px;
+}
+
+.api-switch-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(225, 229, 235, 0.92);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.api-switch-table {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: collapse;
+  color: #1f2933;
+  font-size: 12px;
+}
+
+.api-switch-table th,
+.api-switch-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(229, 232, 238, 0.9);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.api-switch-table th {
+  color: #4b5563;
+  background: rgba(248, 250, 252, 0.96);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.api-switch-table tbody tr {
+  transition: background 140ms ease;
+}
+
+.api-switch-table tbody tr:hover,
+.api-switch-table tbody tr.active {
+  background: rgba(236, 253, 245, 0.72);
+}
+
+.api-switch-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.api-channel-name {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.api-channel-name strong,
+.api-base-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.api-channel-name strong {
+  max-width: 180px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.api-channel-name span {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.api-type-pill,
+.api-status-badge,
+.api-model-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.api-type-pill {
+  color: #4b5563;
+  background: rgba(243, 244, 246, 0.96);
+}
+
+.api-base-url {
+  display: inline-block;
+  max-width: 270px;
+  color: #2563eb;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.api-status-badge.api-status-ok {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.api-status-badge.api-status-warn {
+  color: #9a6700;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.api-status-badge.api-status-error {
+  color: #6b7280;
+  background: rgba(107, 114, 128, 0.12);
+}
+
+.api-response-text {
+  color: #16a34a;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.api-model-count {
+  color: #374151;
+  background: rgba(249, 250, 251, 0.96);
+}
+
+.api-table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.api-table-actions .btn-sm {
+  min-height: 26px;
+  padding-inline: 8px;
+  font-size: 11px;
 }
 
 .model-test-button {
@@ -1982,19 +2746,34 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
 }
 
 @media (max-width: 920px) {
+  .model-console-header,
+  .model-management-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .model-console-summary,
+  .model-console-actions {
+    justify-content: flex-start;
+  }
+
+  .model-management-row {
+    grid-template-columns: 22px 36px minmax(0, 1fr);
+  }
+
+  .model-row-actions {
+    grid-column: 3 / -1;
+    justify-content: flex-start;
+  }
+
   .prompt-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 720px) {
-  .model-bulk-bar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .model-test-all-button {
-    width: 100%;
+  .model-kind-tabs {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .sync-grid {
@@ -2041,5 +2820,8 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
   .settings-tab {
     white-space: nowrap;
   }
+}
+
+@media (max-width: 480px) {
 }
 </style>
