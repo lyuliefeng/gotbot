@@ -105,6 +105,57 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+const POLISH_VOCAB = {
+  character: [
+    '面容精致', '眼神深邃', '目光温柔', '表情自然', '姿态优雅', '身姿挺拔',
+    '长发飘逸', '短发干练', '发丝随风轻扬', '刘海微垂',
+    '衣着考究', '服饰华丽', '衣袂飘飘', '穿着简约优雅', '身披轻纱',
+    '肌肤细腻', '面容清秀', '轮廓分明', '气质温婉', '神态从容',
+    '眉目如画', '唇红齿白', '面若桃花', '英气逼人', '温文尔雅',
+  ],
+  scene: [
+    '古色古香的街道', '繁华都市街头', '静谧的湖畔', '郁郁葱葱的森林',
+    '花开遍野的草原', '烟雨朦胧的山谷', '巍峨的雪山脚下', '碧海蓝天的海岸',
+    '幽深的竹林', '灯火阑珊的小巷', '樱花纷飞的庭院', '秋叶铺满的小径',
+    '白雪覆盖的屋顶', '潺潺流水的石桥', '藤蔓缠绕的废墟', '晨光中的田野',
+    '暮色中的古堡', '薄雾笼罩的湖面', '阳光斑驳的窗台', '微风拂过的麦浪',
+    '潺潺溪流旁', '苍翠山峦间', '繁华夜市里', '空旷沙漠中',
+  ],
+  color: [
+    '暖色调', '冷色调', '金色光辉', '银白月光', '柔和渐变色彩',
+    '高对比色彩', '低饱和度', '鲜艳明快', '淡雅清新', '复古色调',
+    '琥珀色光芒', '翡翠绿', '宝石蓝', '玫瑰金', '紫罗兰色',
+    '晨曦微光', '暮色昏黄', '霓虹闪烁', '体积光效果', '逆光剪影',
+    '丁达尔光线', '暖黄灯光', '冷蓝阴影', '橙红晚霞映照',
+  ],
+  sky: [
+    '湛蓝天空', '万里无云', '白云悠悠', '晚霞映天', '火烧云',
+    '朝霞绚烂', '星河璀璨', '银河横跨天际', '繁星点点', '流星划过',
+    '彩虹横跨', '极光漫舞', '月光如水', '月晕朦胧', '乌云翻涌',
+    '薄雾轻笼', '金色阳光洒落', '夕阳西下', '旭日东升', '天空呈渐变色彩',
+    '云层间透出光束', '暮色四合', '黎明破晓', '皓月当空',
+  ],
+}
+
+function pickRandomItems<T>(arr: readonly T[], count: number): T[] {
+  const copy = arr.slice()
+  const result: T[] = []
+  for (let i = 0; i < count && copy.length > 0; i++) {
+    const idx = Math.floor(Math.random() * copy.length)
+    result.push(copy.splice(idx, 1)[0])
+  }
+  return result
+}
+
+function randomPolishDetails(count: number): string[] {
+  return [
+    ...pickRandomItems(POLISH_VOCAB.character, count),
+    ...pickRandomItems(POLISH_VOCAB.scene, count),
+    ...pickRandomItems(POLISH_VOCAB.color, count),
+    ...pickRandomItems(POLISH_VOCAB.sky, count),
+  ]
+}
+
 const accountAvatarColors = ['#111827', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#059669']
 
 function accountStateKey(accountId: string): string {
@@ -1173,13 +1224,12 @@ export const useAppStore = defineStore('app', () => {
 
     const modelName = selectedTextModel?.name ?? '本地文本润色'
     if (input.task === 'translate-to-english') {
+      const details = randomPolishDetails(2).join(', ')
       const result = {
         prompt: [
           input.prompt.trim(),
           `${input.style} style`,
-          'clear subject, stable composition, layered lighting, rich material details',
-          `optimized for ${input.modeLabel} image generation`,
-          `translated by ${modelName}`,
+          details,
         ].join(', '),
         modelName,
       }
@@ -1187,13 +1237,13 @@ export const useAppStore = defineStore('app', () => {
       return result
     }
     if (input.task === 'video-prompt') {
+      const details = randomPolishDetails(2).join('，')
       const result = {
         prompt: [
-          input.prompt.trim() || '一个高质量的 AI 文生视频镜头',
+          input.prompt.trim() || '一个高质量的 AI 生成场景',
           `${input.style}风格`,
-          '主体明确，动作连续，场景稳定，镜头运动自然，光照和氛围具备电影感',
-          `适合${input.modeLabel}文生视频输出`,
-          `由 ${modelName} 润色`,
+          '主体明确，动作连续，场景稳定，镜头运动自然',
+          details,
         ].join('，'),
         modelName,
       }
@@ -1218,13 +1268,12 @@ export const useAppStore = defineStore('app', () => {
       notify(textPolishSuccessMessage(input.task, result.modelName))
       return result
     }
+    const details = randomPolishDetails(2).join('，')
     const result = {
       prompt: [
-        input.prompt.trim() || '一个高质量的本地 AI 图像生成工作台界面',
+        input.prompt.trim() || '一个高质量的 AI 生成场景',
         `${input.style}风格`,
-        '主体明确，构图稳定，光线层次清晰，材质细节丰富',
-        `适合${input.modeLabel}输出`,
-        `由 ${modelName} 润色`,
+        details,
       ].join('，'),
       modelName,
     }

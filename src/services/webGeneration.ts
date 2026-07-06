@@ -52,22 +52,40 @@ async function readGenerationError(response: Response): Promise<string> {
   return `Web 生成代理请求失败: HTTP ${response.status}`
 }
 
+const CLIENT_MAX_RETRIES = 2
+const CLIENT_RETRY_BASE_MS = 1000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export async function createWebGenerationTask(input: GenerationInput, model: ModelProfile): Promise<GenerationTask | null> {
   if (typeof window === 'undefined' || typeof fetch !== 'function') return null
 
-  let response: Response
+  let response: Response | null = null
   const payload: WebGenerationPayload = { input, model }
-  try {
-    response = await fetch('/api/generation', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-  } catch (error) {
-    throw proxyNetworkError(error)
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt <= CLIENT_MAX_RETRIES; attempt++) {
+    try {
+      response = await fetch('/api/generation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      break
+    } catch (error) {
+      lastError = error
+      if (attempt < CLIENT_MAX_RETRIES) {
+        await sleep(CLIENT_RETRY_BASE_MS * Math.pow(2, attempt))
+        continue
+      }
+    }
   }
+
+  if (!response) throw proxyNetworkError(lastError)
 
   if (isProxyUnavailable(response.status)) return null
   if (!response.ok) throw new Error(await readGenerationError(response))

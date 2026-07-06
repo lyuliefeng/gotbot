@@ -10,6 +10,9 @@ const AGNES_VIDEOS_PATH = 'v1/videos'
 const AGNES_LITTERBOX_UPLOAD_URL = 'https://litterbox.catbox.moe/resources/internals/api.php'
 const AGNES_VIDEO_POLL_INTERVAL_MS = 5000
 const AGNES_VIDEO_POLL_TIMEOUT_MS = 600000
+const UPSTREAM_RETRY_STATUS = new Set([429, 500, 502, 503, 504, 524])
+const UPSTREAM_MAX_RETRIES = 3
+const UPSTREAM_RETRY_BASE_MS = 1500
 
 type GenerationMode = 'txt2img' | 'img2img' | 'cover' | 'icon' | '3d' | 'gif' | 'txt2video' | 'img2video'
 
@@ -164,21 +167,32 @@ function validateWebGenerationModel(model: WebModelProfile): void {
 }
 
 async function postGenerationJson(endpoint: string, apiKey: string, protocol: string, body: unknown): Promise<unknown> {
-  const upstreamResponse = await fetchUpstream(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey.trim()}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  }, `生成请求网络失败: 协议 ${protocol} POST ${endpoint}`)
-  const text = await upstreamResponse.text()
-  if (!upstreamResponse.ok) throw new Error(safeGenerationUpstreamError(protocol, upstreamResponse.status, text))
-  try {
-    return text ? JSON.parse(text) : {}
-  } catch (error) {
-    throw new Error(`解析生成响应失败: ${error instanceof Error ? error.message : String(error)}; ${text.slice(0, 500)}`, { cause: error })
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= UPSTREAM_MAX_RETRIES; attempt++) {
+    const upstreamResponse = await fetchUpstream(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    }, `生成请求网络失败: 协议 ${protocol} POST ${endpoint}`)
+    const text = await upstreamResponse.text()
+    if (!upstreamResponse.ok) {
+      if (UPSTREAM_RETRY_STATUS.has(upstreamResponse.status) && attempt < UPSTREAM_MAX_RETRIES) {
+        lastError = new Error(safeGenerationUpstreamError(protocol, upstreamResponse.status, text))
+        await sleep(UPSTREAM_RETRY_BASE_MS * Math.pow(2, attempt))
+        continue
+      }
+      throw new Error(safeGenerationUpstreamError(protocol, upstreamResponse.status, text))
+    }
+    try {
+      return text ? JSON.parse(text) : {}
+    } catch (error) {
+      throw new Error(`解析生成响应失败: ${error instanceof Error ? error.message : String(error)}; ${text.slice(0, 500)}`, { cause: error })
+    }
   }
+  throw lastError ?? new Error(`生成请求重试耗尽: 协议 ${protocol} POST ${endpoint}`)
 }
 
 function collectImageOutputs(payload: unknown): Array<Record<string, unknown>> {
@@ -373,16 +387,34 @@ async function pollAgnesVideo(model: WebModelProfile, videoId: string): Promise<
   const createEndpoint = joinApiEndpoint(model.endpoint, model.apiPath, AGNES_VIDEOS_PATH)
   const pollEndpoint = agnesVideoPollEndpoint(createEndpoint)
   const startedAt = Date.now()
+  let consecutiveErrors = 0
   while (Date.now() - startedAt <= AGNES_VIDEO_POLL_TIMEOUT_MS) {
     const url = new URL(pollEndpoint)
     url.searchParams.set('video_id', videoId)
-    const response = await fetchUpstream(url, {
-      headers: {
-        Authorization: `Bearer ${model.apiKey.trim()}`,
-      },
-    }, `轮询 Agnes 视频网络失败: GET ${url.toString()}`)
+    let response: Response
+    try {
+      response = await fetchUpstream(url, {
+        headers: {
+          Authorization: `Bearer ${model.apiKey.trim()}`,
+        },
+      }, `轮询 Agnes 视频网络失败: GET ${url.toString()}`)
+    } catch (error) {
+      consecutiveErrors++
+      if (consecutiveErrors >= 5) throw error
+      await sleep(AGNES_VIDEO_POLL_INTERVAL_MS)
+      continue
+    }
     const text = await response.text()
-    if (!response.ok) throw new Error(safeGenerationUpstreamError('agnes-video', response.status, text))
+    if (!response.ok) {
+      if (UPSTREAM_RETRY_STATUS.has(response.status)) {
+        consecutiveErrors++
+        if (consecutiveErrors >= 5) throw new Error(safeGenerationUpstreamError('agnes-video', response.status, text))
+        await sleep(AGNES_VIDEO_POLL_INTERVAL_MS)
+        continue
+      }
+      throw new Error(safeGenerationUpstreamError('agnes-video', response.status, text))
+    }
+    consecutiveErrors = 0
     const payload = text ? JSON.parse(text) : {}
     const status = (findStringByKeys(payload, ['status', 'state']) ?? 'running').toLowerCase()
     if (['completed', 'complete', 'succeeded', 'success', 'done'].includes(status)) return payload
@@ -455,8 +487,11 @@ async function createWebImageGeneration(input: WebGenerationInput, model: WebMod
   const endpoint = protocol === 'multimodal-chat'
     ? joinApiEndpoint(model.endpoint, model.apiPath, 'v1/chat/completions')
     : joinApiEndpoint(model.endpoint, model.apiPath, 'v1/images/generations')
-  const body = protocol === 'multimodal-chat'
-    ? {
+  const isAgnes = protocol === 'agnes-image'
+
+  function buildBody(): Record<string, unknown> {
+    if (protocol === 'multimodal-chat') {
+      return {
         model: model.model.trim(),
         messages: [{
           role: 'user',
@@ -468,17 +503,34 @@ async function createWebImageGeneration(input: WebGenerationInput, model: WebMod
         n: input.batchSize,
         size: `${input.width}x${input.height}`,
       }
-    : {
-        model: model.model.trim(),
-        prompt: input.negativePrompt?.trim() ? `${input.prompt.trim()}\nNegative prompt: ${input.negativePrompt.trim()}` : input.prompt.trim(),
-        n: input.batchSize,
-        size: `${input.width}x${input.height}`,
-        ...(protocol === 'agnes-image' && input.mode === 'img2img' && input.referenceImage?.trim()
-          ? { extra_body: { image: input.referenceImage.trim() } }
-          : {}),
-      }
-  const payload = await postGenerationJson(endpoint, model.apiKey, protocol, body)
-  const images = collectImageOutputs(payload)
+    }
+    return {
+      model: model.model.trim(),
+      prompt: input.negativePrompt?.trim() ? `${input.prompt.trim()}\nNegative prompt: ${input.negativePrompt.trim()}` : input.prompt.trim(),
+      ...(isAgnes ? {} : { n: input.batchSize }),
+      size: `${input.width}x${input.height}`,
+      ...(!isAgnes && input.seed > 0 ? { seed: input.seed } : {}),
+      ...(isAgnes
+        ? { extra_body: {
+            response_format: 'url',
+            ...(input.mode === 'img2img' && input.referenceImage?.trim()
+              ? { image: [input.referenceImage.trim()] }
+              : {}),
+          }}
+        : {}),
+    }
+  }
+
+  let images: Array<Record<string, unknown>> = []
+  if (isAgnes && input.batchSize > 1) {
+    for (let i = 0; i < input.batchSize; i++) {
+      const payload = await postGenerationJson(endpoint, model.apiKey, protocol, buildBody())
+      images.push(...collectImageOutputs(payload))
+    }
+  } else {
+    const payload = await postGenerationJson(endpoint, model.apiKey, protocol, buildBody())
+    images = collectImageOutputs(payload)
+  }
   if (!images.length) throw new Error(`图像模型未返回图片: 协议 ${protocol} POST ${endpoint}`)
 
   const id = `task-${randomUUID()}`

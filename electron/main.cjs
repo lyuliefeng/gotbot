@@ -9,6 +9,9 @@ const AGNES_VIDEOS_PATH = 'v1/videos'
 const AGNES_LITTERBOX_UPLOAD_URL = 'https://litterbox.catbox.moe/resources/internals/api.php'
 const AGNES_VIDEO_POLL_INTERVAL_MS = 5000
 const AGNES_VIDEO_POLL_TIMEOUT_MS = 600000
+const UPSTREAM_RETRY_STATUS = new Set([429, 500, 502, 503, 504, 524])
+const UPSTREAM_MAX_RETRIES = 3
+const UPSTREAM_RETRY_BASE_MS = 1500
 
 function errorMessageText(error) {
   if (error && typeof error === 'object' && typeof error.message === 'string') return error.message
@@ -202,7 +205,7 @@ async function createGenerationTask(input, model) {
   if (!model.model?.trim()) throw new Error('请填写模型 ID')
 
   const protocol = model.apiProtocol || 'openai-images'
-  if (protocol === 'openai-images' || protocol === 'agnes-image') return createOpenAiImagesGeneration(input, model)
+  if (protocol === 'openai-images' || protocol === 'agnes-image') return createOpenAiImagesGeneration(input, model, protocol)
   if (protocol === 'agnes-video') return createAgnesVideoGeneration(input, model)
   if (protocol === 'multimodal-chat') return createMultimodalChatGeneration(input, model)
   if (protocol === 'openai-image-edits') return createOpenAiImageEditsGeneration(input, model)
@@ -215,15 +218,36 @@ function createLocalGeneration(input) {
   return completedTask(input, id, createdAt, Array.from({ length: input.batchSize }, (_item, index) => createPreviewAsset(id, input, index, createdAt)))
 }
 
-async function createOpenAiImagesGeneration(input, model) {
+async function createOpenAiImagesGeneration(input, model, protocol) {
   const endpoint = joinApiEndpoint(model.endpoint, model.apiPath, 'v1/images/generations')
-  const payload = await postJson(endpoint, model.apiKey, {
-    model: model.model.trim(),
-    prompt: input.prompt.trim(),
-    n: input.batchSize,
-    size: `${input.width}x${input.height}`,
-  })
-  const images = collectImageOutputs(payload)
+  const isAgnes = protocol === 'agnes-image'
+  function buildBody() {
+    return {
+      model: model.model.trim(),
+      prompt: input.prompt.trim(),
+      ...(isAgnes ? {} : { n: input.batchSize }),
+      size: `${input.width}x${input.height}`,
+      ...(!isAgnes && input.seed > 0 ? { seed: input.seed } : {}),
+      ...(isAgnes
+        ? { extra_body: {
+            response_format: 'url',
+            ...(input.mode === 'img2img' && input.referenceImage
+              ? { image: [String(input.referenceImage).trim()] }
+              : {}),
+          }}
+        : {}),
+    }
+  }
+  let images = []
+  if (isAgnes && input.batchSize > 1) {
+    for (let i = 0; i < input.batchSize; i++) {
+      const payload = await postJson(endpoint, model.apiKey, buildBody())
+      images.push(...collectImageOutputs(payload))
+    }
+  } else {
+    const payload = await postJson(endpoint, model.apiKey, buildBody())
+    images = collectImageOutputs(payload)
+  }
   if (!images.length) throw new Error(`图像模型未返回图片: POST ${endpoint}`)
   return taskFromImages(input, images)
 }
@@ -347,17 +371,68 @@ function createPreviewAsset(taskId, input, index, createdAt) {
   }
 }
 
+const POLISH_VOCAB = {
+  character: [
+    '面容精致', '眼神深邃', '目光温柔', '表情自然', '姿态优雅', '身姿挺拔',
+    '长发飘逸', '短发干练', '发丝随风轻扬', '刘海微垂',
+    '衣着考究', '服饰华丽', '衣袂飘飘', '穿着简约优雅', '身披轻纱',
+    '肌肤细腻', '面容清秀', '轮廓分明', '气质温婉', '神态从容',
+    '眉目如画', '唇红齿白', '面若桃花', '英气逼人', '温文尔雅',
+  ],
+  scene: [
+    '古色古香的街道', '繁华都市街头', '静谧的湖畔', '郁郁葱葱的森林',
+    '花开遍野的草原', '烟雨朦胧的山谷', '巍峨的雪山脚下', '碧海蓝天的海岸',
+    '幽深的竹林', '灯火阑珊的小巷', '樱花纷飞的庭院', '秋叶铺满的小径',
+    '白雪覆盖的屋顶', '潺潺流水的石桥', '藤蔓缠绕的废墟', '晨光中的田野',
+    '暮色中的古堡', '薄雾笼罩的湖面', '阳光斑驳的窗台', '微风拂过的麦浪',
+    '潺潺溪流旁', '苍翠山峦间', '繁华夜市里', '空旷沙漠中',
+  ],
+  color: [
+    '暖色调', '冷色调', '金色光辉', '银白月光', '柔和渐变色彩',
+    '高对比色彩', '低饱和度', '鲜艳明快', '淡雅清新', '复古色调',
+    '琥珀色光芒', '翡翠绿', '宝石蓝', '玫瑰金', '紫罗兰色',
+    '晨曦微光', '暮色昏黄', '霓虹闪烁', '体积光效果', '逆光剪影',
+    '丁达尔光线', '暖黄灯光', '冷蓝阴影', '橙红晚霞映照',
+  ],
+  sky: [
+    '湛蓝天空', '万里无云', '白云悠悠', '晚霞映天', '火烧云',
+    '朝霞绚烂', '星河璀璨', '银河横跨天际', '繁星点点', '流星划过',
+    '彩虹横跨', '极光漫舞', '月光如水', '月晕朦胧', '乌云翻涌',
+    '薄雾轻笼', '金色阳光洒落', '夕阳西下', '旭日东升', '天空呈渐变色彩',
+    '云层间透出光束', '暮色四合', '黎明破晓', '皓月当空',
+  ],
+}
+
+function pickRandom(arr, count) {
+  const copy = arr.slice()
+  const result = []
+  for (let i = 0; i < count && copy.length > 0; i++) {
+    const idx = Math.floor(Math.random() * copy.length)
+    result.push(copy.splice(idx, 1)[0])
+  }
+  return result
+}
+
+function randomPolishDetails(count) {
+  return [
+    ...pickRandom(POLISH_VOCAB.character, count),
+    ...pickRandom(POLISH_VOCAB.scene, count),
+    ...pickRandom(POLISH_VOCAB.color, count),
+    ...pickRandom(POLISH_VOCAB.sky, count),
+  ]
+}
+
 async function polishPrompt(input, model) {
   if (!model || model.provider === 'local-preview') return localPolishPrompt(input, model?.name || '本地文本润色')
   const endpoint = joinApiEndpoint(model.endpoint, model.apiPath, 'v1/chat/completions')
   const system = input.task === 'negative-prompt'
-    ? 'You rewrite negative prompts for image and video generation. Return only disallowed defects and artifacts, never positive scene content.'
-    : 'You rewrite prompts for image and video generation. Return only the rewritten prompt.'
+    ? 'You rewrite negative prompts for image and video generation. Return only disallowed defects and artifacts, never positive scene content. Do not include any meta-commentary about the prompt.'
+    : 'You are a prompt engineer for AI image and video generation. Rewrite the user prompt to be vivid and detailed. Enrich it with specific visual details about character appearance, scene environment, color palette, lighting, and sky/atmosphere. Return ONLY the rewritten prompt text. Do not include any explanation, commentary, labels, or meta-descriptions like "suitable for image generation" or "polished by X".'
   const user = `${input.task || 'polish'} | ${input.modeLabel} | ${input.style}\n${input.prompt}`
   const payload = await postJson(endpoint, model.apiKey, {
     model: model.model,
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-    temperature: 0.4,
+    temperature: 0.7,
   })
   const prompt = payload.choices?.[0]?.message?.content?.trim()
   if (!prompt) throw new Error('文本模型未返回润色结果')
@@ -380,10 +455,14 @@ function localPolishPrompt(input, modelName) {
     return { prompt, modelName }
   }
   const joiner = input.task === 'translate-to-english' ? ', ' : '，'
-  const extra = input.task === 'video-prompt'
-    ? '主体明确，动作连续，场景稳定，镜头运动自然，光照和氛围具备电影感'
-    : '主体明确，构图稳定，光线层次清晰，材质细节丰富'
-  return { prompt: [input.prompt.trim() || '一个高质量的 AI 生成场景', `${input.style}风格`, extra, `适合${input.modeLabel}输出`].join(joiner), modelName }
+  const details = randomPolishDetails(2).join(joiner)
+  if (input.task === 'translate-to-english') {
+    return { prompt: [input.prompt.trim(), `${input.style} style`, details].join(joiner), modelName }
+  }
+  if (input.task === 'video-prompt') {
+    return { prompt: [input.prompt.trim() || '一个高质量的 AI 生成场景', `${input.style}风格`, '主体明确，动作连续，场景稳定，镜头运动自然', details].join(joiner), modelName }
+  }
+  return { prompt: [input.prompt.trim() || '一个高质量的 AI 生成场景', `${input.style}风格`, details].join(joiner), modelName }
 }
 
 async function listModelCatalog(profile) {
@@ -439,34 +518,63 @@ async function exportIconBundle(request) {
 }
 
 async function postJson(endpoint, apiKey, body) {
-  const response = await fetchUpstream(endpoint, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }, `生成请求网络失败: POST ${endpoint}`)
-  const text = await response.text()
-  if (!response.ok) throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
-  try {
-    return JSON.parse(text)
-  } catch (error) {
-    throw new Error(`解析模型响应失败: ${error instanceof Error ? error.message : String(error)}; ${text}`)
+  let lastError = null
+  for (let attempt = 0; attempt <= UPSTREAM_MAX_RETRIES; attempt++) {
+    const response = await fetchUpstream(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, `生成请求网络失败: POST ${endpoint}`)
+    const text = await response.text()
+    if (!response.ok) {
+      if (UPSTREAM_RETRY_STATUS.has(response.status) && attempt < UPSTREAM_MAX_RETRIES) {
+        lastError = new Error(`模型响应失败: HTTP ${response.status} ${text}`)
+        await sleep(UPSTREAM_RETRY_BASE_MS * Math.pow(2, attempt))
+        continue
+      }
+      throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
+    }
+    try {
+      return JSON.parse(text)
+    } catch (error) {
+      throw new Error(`解析模型响应失败: ${error instanceof Error ? error.message : String(error)}; ${text}`)
+    }
   }
+  throw lastError || new Error(`生成请求重试耗尽: POST ${endpoint}`)
 }
 
 async function pollAgnesVideo(model, videoId) {
   const createEndpoint = joinApiEndpoint(model.endpoint, model.apiPath, AGNES_VIDEOS_PATH)
   const pollEndpoint = agnesVideoPollEndpoint(createEndpoint)
   const startedAt = Date.now()
+  let consecutiveErrors = 0
   while (Date.now() - startedAt <= AGNES_VIDEO_POLL_TIMEOUT_MS) {
     const url = new URL(pollEndpoint)
     url.searchParams.set('video_id', videoId)
-    const response = await fetchUpstream(url, {
-      headers: {
-        Authorization: `Bearer ${String(model.apiKey || '').trim()}`,
-      },
-    }, `轮询 Agnes 视频网络失败: GET ${url.toString()}`)
+    let response
+    try {
+      response = await fetchUpstream(url, {
+        headers: {
+          Authorization: `Bearer ${String(model.apiKey || '').trim()}`,
+        },
+      }, `轮询 Agnes 视频网络失败: GET ${url.toString()}`)
+    } catch (error) {
+      consecutiveErrors++
+      if (consecutiveErrors >= 5) throw error
+      await sleep(AGNES_VIDEO_POLL_INTERVAL_MS)
+      continue
+    }
     const text = await response.text()
-    if (!response.ok) throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
+    if (!response.ok) {
+      if (UPSTREAM_RETRY_STATUS.has(response.status)) {
+        consecutiveErrors++
+        if (consecutiveErrors >= 5) throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
+        await sleep(AGNES_VIDEO_POLL_INTERVAL_MS)
+        continue
+      }
+      throw new Error(`模型响应失败: HTTP ${response.status} ${text}`)
+    }
+    consecutiveErrors = 0
     const payload = text ? JSON.parse(text) : {}
     const status = (findStringByKeys(payload, ['status', 'state']) || 'running').toLowerCase()
     if (['completed', 'complete', 'succeeded', 'success', 'done'].includes(status)) return payload
