@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import AppShell from '@/components/AppShell.vue'
 import { useAppStore } from '@/stores/app'
 import { useTheme } from '@/composables/useTheme'
 
 const store = useAppStore()
+const route = useRoute()
+const useShell = computed(() => route.meta.shell !== false)
 useTheme()
 
 onMounted(() => {
@@ -13,9 +16,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <AppShell v-if="useShell">
     <RouterView />
   </AppShell>
+  <RouterView v-else />
 
   <Transition name="toast">
     <div v-if="store.toast" class="toast" :class="store.toast.type" role="status" aria-live="polite">

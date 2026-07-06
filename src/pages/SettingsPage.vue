@@ -188,25 +188,23 @@ const selectedChannelModels = computed(() => channelSelectableModelOptions.value
 const selectedChannelModelCount = computed(() => selectedChannelModels.value.length)
 const autoApiTypeSummary = computed(() => `${apiTypeLabel(draft.value)} · ${draft.value.apiPath || defaultApiPath(draft.value.kind)}`)
 const managedModels = computed(() => store.models.filter((model) => model.provider !== 'local-preview'))
-const managedModelCount = computed(() => managedModels.value.length)
-const filteredManagedModels = computed(() => {
+const managedProfileCount = computed(() => managedModels.value.length)
+const savedApiRouteGroups = computed<ModelRouteGroup[]>(() => store.modelRouteGroups.filter((group) => group.profiles.length))
+const managedModelCount = computed(() => savedApiRouteGroups.value.length)
+const filteredManagedModelGroups = computed(() => {
   const keyword = modelManagerSearch.value.trim().toLowerCase()
-  return managedModels.value.filter((model) => {
-    if (modelManagerKindFilter.value !== 'all' && model.kind !== modelManagerKindFilter.value) return false
+  return savedApiRouteGroups.value.filter((group) => {
+    if (modelManagerKindFilter.value !== 'all' && group.kind !== modelManagerKindFilter.value) return false
     if (!keyword) return true
     return [
-      model.name,
-      model.model,
-      model.endpoint,
-      model.apiPath,
-      model.apiProtocol,
-      model.kind,
+      group.model,
+      modelKindLabel(group.kind),
+      ...group.profiles.map((profile) => apiChannelName(profile)),
     ]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(keyword))
   })
 })
-const savedApiRouteGroups = computed<ModelRouteGroup[]>(() => store.modelRouteGroups.filter((group) => group.profiles.length))
 const autoRouteGroupCount = computed(() => savedApiRouteGroups.value.filter((group) => group.profiles.length > 1).length)
 const savedApiChannelEntries = computed<ApiChannelEntry[]>(() => {
   const groups = new Map<string, ModelProfile[]>()
@@ -384,14 +382,6 @@ function isModelTesting(id: string): boolean {
   return testingModelIds.value.has(id)
 }
 
-function routeUpstreamUrl(model: ModelProfile): string {
-  const endpoint = model.endpoint.trim()
-  const apiPath = model.apiPath?.trim()
-  if (!endpoint) return '未配置 BASE_URL'
-  if (!apiPath) return endpoint
-  return `${endpoint.replace(/\/+$/g, '')}/${apiPath.replace(/^\/+/g, '')}`
-}
-
 function routeCatalogUrl(model: ModelProfile): string {
   const endpoint = model.endpoint.trim()
   if (!endpoint) return '未配置模型接口'
@@ -495,6 +485,41 @@ function apiChannelModelSummary(entry: ApiChannelEntry): string {
   return `${kinds.join(' / ')} · ${entry.profiles.length} 个模型`
 }
 
+function modelRouteGroupPrimaryProfile(group: ModelRouteGroup): ModelProfile | undefined {
+  return group.profiles[0]
+}
+
+function modelRouteGroupChannelNames(group: ModelRouteGroup): string[] {
+  return Array.from(new Set(group.profiles.map(apiChannelName)))
+}
+
+function modelRouteGroupStatusLabel(group: ModelRouteGroup): string {
+  if (group.profiles.some((profile) => profile.status === 'connected')) return '可用'
+  if (group.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return '不可用'
+  return '待检测'
+}
+
+function modelRouteGroupStatusClass(group: ModelRouteGroup): string {
+  if (group.profiles.some((profile) => profile.status === 'connected')) return 'api-status-ok'
+  if (group.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return 'api-status-error'
+  return 'api-status-warn'
+}
+
+function modelRouteGroupMetaLine(group: ModelRouteGroup): string {
+  const connectedCount = group.profiles.filter((profile) => profile.status === 'connected').length
+  const fallbackLabel = group.profiles.length > 1 ? '自动路由回退' : '单上游路由'
+  const primaryProfile = modelRouteGroupPrimaryProfile(group)
+  const primaryChannel = primaryProfile ? apiChannelName(primaryProfile) : '未配置渠道'
+  return `${modelKindLabel(group.kind)} · ${group.profiles.length} 个上游 · ${connectedCount} 个可用 · 默认 ${primaryChannel} · ${fallbackLabel}`
+}
+
+function modelRouteGroupChannelSummary(group: ModelRouteGroup): string {
+  const names = modelRouteGroupChannelNames(group)
+  if (!names.length) return '暂无上游'
+  if (names.length <= 2) return names.join(' / ')
+  return `${names.slice(0, 2).join(' / ')} +${names.length - 2}`
+}
+
 function sortApiChannelProfiles(profiles: ModelProfile[]): ModelProfile[] {
   return profiles.slice().sort((left, right) => {
     const leftSelected = selectedRouteProfileId.value && left.id === selectedRouteProfileId.value ? 0 : 1
@@ -519,17 +544,6 @@ function removeApiChannelWithConfirmation(entry: ApiChannelEntry): void {
 
   for (const profile of entry.profiles) store.removeModel(profile.id)
   if (entry.profiles.some((profile) => editingModelId.value === profile.id)) closeModelEditor()
-}
-
-function modelManagerMetaLine(model: ModelProfile): string {
-  const parts = [
-    `发布: ${routeResponseLabel(model)}`,
-    modelKindLabel(model.kind),
-    apiTypeLabel(model),
-    model.apiPath?.trim() ? `路径: ${model.apiPath.trim()}` : '路径: 默认',
-  ]
-  if (model.endpoint.trim()) parts.push(routeUpstreamUrl(model))
-  return parts.join(' / ')
 }
 
 function resetChannelEditorState(model: ModelProfile): void {
@@ -624,22 +638,6 @@ function editModel(model: ModelProfile): void {
   draft.value = { ...model }
   resetChannelEditorState(model)
   editingModelId.value = model.id
-}
-
-function removeModelWithConfirmation(model: ModelProfile): void {
-  const confirmed = window.confirm(`确定删除模型「${model.name}」？此操作会移除该模型的 API 地址、Key 和连接状态。`)
-  if (!confirmed) return
-
-  store.removeModel(model.id)
-  if (editingModelId.value === model.id) closeModelEditor()
-}
-
-function setPrimaryManagedModel(model: ModelProfile): void {
-  if (model.isPrimary) return
-  if (model.kind === 'image') store.setPrimaryImageModel(model.id)
-  else if (model.kind === 'video') store.setPrimaryVideoModel(model.id)
-  else if (model.kind === 'text') store.setPrimaryTextModel(model.id)
-  else store.setPrimaryTtsModel(model.id)
 }
 
 function normalizedEndpoint(value: string): string {
@@ -856,6 +854,11 @@ async function resetDemoDataWithConfirmation(): Promise<void> {
   await store.resetDemoData()
 }
 
+function logoutAccount(): void {
+  store.logout()
+  void router.replace('/login')
+}
+
 function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatusTone } {
   if (!model.endpoint.trim() || !model.apiKey.trim() || (model.apiProtocol === 'mgtv-storyboard' && !model.apiSecret?.trim()) || !model.model.trim()) return { label: '未配置', tone: 'warn' }
   if (model.status === 'connected') return { label: '已连接', tone: 'ok' }
@@ -912,7 +915,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
           <div class="model-management-head">
             <div class="settings-section-title">
               模型管理
-              <span class="count">{{ managedModelCount }} 个模型</span>
+              <span class="count">{{ managedModelCount }} 个模型 · {{ managedProfileCount }} 个上游路由</span>
             </div>
           </div>
 
@@ -920,7 +923,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
             <input
               v-model="modelManagerSearch"
               type="search"
-              placeholder="搜索/创建模型名 / 显示名 / 渠道"
+              placeholder="搜索模型名 / 类型 / 渠道"
               aria-label="搜索模型"
             />
             <div class="model-kind-tabs" aria-label="模型类型筛选">
@@ -938,45 +941,28 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
 
           <div class="model-management-list" data-testid="managed-model-list">
             <article
-              v-for="model in filteredManagedModels"
-              :key="model.id"
+              v-for="group in filteredManagedModelGroups"
+              :key="group.key"
               class="model-management-row"
-              :class="{ primary: model.isPrimary }"
+              :class="{ primary: group.profiles.some((profile) => profile.isPrimary) }"
               data-testid="managed-model-row"
             >
-              <span class="model-row-drag" aria-hidden="true">⋮⋮</span>
-              <span class="model-provider-avatar" aria-hidden="true">{{ apiTypeLabel(model).slice(0, 1).toUpperCase() }}</span>
+              <span class="model-provider-avatar" aria-hidden="true">{{ modelKindLabel(group.kind).slice(0, 1) }}</span>
               <div class="model-row-main">
                 <div class="model-row-title">
-                  <strong>{{ model.model || model.name }}</strong>
-                  <span class="model-provider-name">{{ model.name }}</span>
-                  <span v-if="model.isPrimary" class="model-primary-badge">默认</span>
-                  <span class="api-status-badge" :class="apiRouteStatusClass(model)">{{ modelStatusMeta(model).label }}</span>
+                  <strong>{{ group.model }}</strong>
+                  <span class="model-provider-name">{{ modelKindLabel(group.kind) }}</span>
+                  <span v-if="group.profiles.length > 1" class="model-primary-badge">自动回退</span>
+                  <span class="api-status-badge" :class="modelRouteGroupStatusClass(group)">{{ modelRouteGroupStatusLabel(group) }}</span>
                 </div>
-                <p>{{ modelManagerMetaLine(model) }}</p>
+                <p>{{ modelRouteGroupMetaLine(group) }}</p>
               </div>
-              <div class="model-row-actions">
-                <button class="btn-soft btn-sm" type="button" @click="editModel(model)">编辑</button>
-                <button
-                  class="btn-soft btn-sm model-test-button"
-                  :class="{ loading: isModelTesting(model.id) }"
-                  type="button"
-                  :disabled="isModelTesting(model.id)"
-                  :aria-busy="isModelTesting(model.id)"
-                  @click="testModelConnection(model.id)"
-                >
-                  {{ isModelTesting(model.id) ? '测速中' : '测速' }}
-                </button>
-                <button class="btn-icon" type="button" :aria-label="`删除 ${model.name}`" @click="removeModelWithConfirmation(model)">
-                  <Trash2 :size="14" />
-                </button>
-                <label class="model-primary-switch" :aria-label="`设为默认 ${model.name}`">
-                  <input type="checkbox" :checked="model.isPrimary" @change="setPrimaryManagedModel(model)">
-                  <span />
-                </label>
+              <div class="model-route-summary" aria-label="模型路由上游">
+                <strong>{{ group.profiles.length }} 上游</strong>
+                <span>{{ modelRouteGroupChannelSummary(group) }}</span>
               </div>
             </article>
-            <div v-if="!filteredManagedModels.length" class="empty-inline">
+            <div v-if="!filteredManagedModelGroups.length" class="empty-inline">
               <strong>暂无匹配模型</strong>
               <span>调整筛选条件，或点击新增渠道创建上游配置。</span>
             </div>
@@ -986,7 +972,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         <div class="settings-section-block api-route-panel" data-testid="api-route-groups">
           <div class="settings-section-title">
             API 渠道
-            <span class="count">{{ savedApiChannelEntries.length }} 个上游 · {{ managedModelCount }} 个模型 · {{ autoRouteGroupCount }} 个自动回退组</span>
+            <span class="count">{{ savedApiChannelEntries.length }} 个上游 · {{ managedProfileCount }} 个路由模型 · {{ autoRouteGroupCount }} 个自动回退组</span>
           </div>
           <div v-if="savedApiChannelEntries.length" class="api-switch-table-wrap">
             <table class="api-switch-table" data-testid="api-channel-table">
@@ -1207,6 +1193,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
           </div>
           <div class="btn-row">
             <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">保存系统设置</button>
+            <button class="btn-soft" type="button" @click="logoutAccount">退出账号登录</button>
             <button class="btn-danger" type="button" @click="resetDemoDataWithConfirmation">恢复初始数据</button>
           </div>
         </div>
@@ -2009,7 +1996,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
 
 .model-management-row {
   display: grid;
-  grid-template-columns: 22px 36px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(150px, auto);
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -2028,12 +2015,6 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
 
 .model-management-row:hover {
   transform: translateY(-1px);
-}
-
-.model-row-drag {
-  color: #c4c9d2;
-  font-size: 16px;
-  letter-spacing: -0.2em;
 }
 
 .model-provider-avatar {
@@ -2102,55 +2083,27 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
   font-size: 11px;
 }
 
-.model-row-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+.model-route-summary {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
 }
 
-.model-primary-switch {
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
+.model-route-summary strong {
+  color: #111827;
+  font-size: 12px;
+  font-weight: 950;
 }
 
-.model-primary-switch input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.model-primary-switch span {
-  position: relative;
-  width: 34px;
-  height: 20px;
-  border-radius: 999px;
-  background: rgba(107, 114, 128, 0.22);
-  transition: background 140ms ease;
-}
-
-.model-primary-switch span::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16);
-  transition: transform 140ms ease;
-}
-
-.model-primary-switch input:checked + span {
-  background: #111827;
-}
-
-.model-primary-switch input:checked + span::after {
-  transform: translateX(14px);
+.model-route-summary span {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .api-route-panel {
@@ -2757,12 +2710,13 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
   }
 
   .model-management-row {
-    grid-template-columns: 22px 36px minmax(0, 1fr);
+    grid-template-columns: 36px minmax(0, 1fr);
   }
 
-  .model-row-actions {
-    grid-column: 3 / -1;
-    justify-content: flex-start;
+  .model-route-summary {
+    grid-column: 2 / -1;
+    justify-items: start;
+    text-align: left;
   }
 
   .prompt-filters {

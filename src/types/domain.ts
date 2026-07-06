@@ -2,6 +2,19 @@ export type GenerationMode = 'txt2img' | 'img2img' | 'cover' | 'icon' | '3d' | '
 
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed'
 export type ExportFormat = 'svg' | 'png' | 'jpg' | 'webp' | 'gif' | 'ico' | 'mp4'
+export type UserAccountRole = 'admin' | 'user'
+
+export interface UserAccount {
+  id: string
+  username: string
+  email?: string
+  displayName: string
+  role: UserAccountRole
+  isActive: boolean
+  avatarColor: string
+  createdAt: string
+  lastActiveAt: string
+}
 
 export interface PromptItem {
   id: string

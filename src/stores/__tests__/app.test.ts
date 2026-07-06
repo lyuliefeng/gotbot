@@ -43,6 +43,109 @@ describe('app store generation bridge', () => {
     expect(store.settings.defaultOutputDir.toLowerCase()).not.toContain('samimage')
   })
 
+  it('starts with a local admin account workspace', () => {
+    const store = useAppStore()
+
+    expect(store.accounts).toHaveLength(1)
+    expect(store.currentAccount?.username).toBe('admin')
+    expect(store.currentAccount?.role).toBe('admin')
+    expect(store.activeAccounts).toHaveLength(1)
+    expect(store.isAuthenticated).toBe(false)
+  })
+
+  it('logs in and out with a local access key', () => {
+    const store = useAppStore()
+
+    expect(store.loginAccount('account-admin', 'wrong-key')).toBe(false)
+    expect(store.isAuthenticated).toBe(false)
+
+    expect(store.loginAccount('account-admin', 'admin123')).toBe(true)
+    expect(store.isAuthenticated).toBe(true)
+
+    store.logout()
+    expect(store.isAuthenticated).toBe(false)
+  })
+
+  it('creates local and email accounts that can log in by identifier', () => {
+    const store = useAppStore()
+
+    const localAccount = store.createAccount({
+      username: 'local-creator',
+      displayName: '本地创作者',
+      accessKey: 'local123',
+    })
+    expect(localAccount).not.toBeNull()
+    if (!localAccount) throw new Error('local account should be created')
+    expect(store.loginAccountByIdentifier('local-creator', 'local123')).toBe(true)
+    expect(store.currentAccount?.id).toBe(localAccount.id)
+
+    store.logout()
+    const emailAccount = store.createAccount({
+      username: 'creator@example.com',
+      email: 'Creator@Example.com',
+      displayName: '邮箱创作者',
+      accessKey: 'email123',
+    })
+    expect(emailAccount).not.toBeNull()
+    if (!emailAccount) throw new Error('email account should be created')
+    expect(emailAccount.email).toBe('creator@example.com')
+    expect(store.loginAccountByIdentifier('creator@example.com', 'email123')).toBe(true)
+    expect(store.currentAccount?.id).toBe(emailAccount.id)
+
+    expect(store.loginAccountByIdentifier('creator@example.com', 'wrong123')).toBe(false)
+    expect(store.createAccount({
+      username: 'creator-copy',
+      email: 'creator@example.com',
+      accessKey: 'email456',
+    })).toBeNull()
+  })
+
+  it('isolates model configuration between frontend accounts', () => {
+    const store = useAppStore()
+
+    store.saveModel({
+      id: 'admin-image',
+      name: 'Admin Image',
+      provider: 'openai-compatible',
+      endpoint: 'https://admin.example.test',
+      apiPath: 'v1/images/generations',
+      apiProtocol: 'openai-images',
+      apiKey: 'sk-admin',
+      model: 'gpt-image-admin',
+      kind: 'image',
+      isPrimary: true,
+      status: 'connected',
+    })
+
+    const operator = store.createAccount({ username: 'operator-a', displayName: '运营 A', accessKey: 'operator123' })
+    expect(operator).not.toBeNull()
+    if (!operator) throw new Error('operator account should be created')
+    store.switchAccount(operator.id)
+    expect(store.models.some((model) => model.id === 'admin-image')).toBe(false)
+
+    store.saveModel({
+      id: 'operator-image',
+      name: 'Operator Image',
+      provider: 'openai-compatible',
+      endpoint: 'https://operator.example.test',
+      apiPath: 'v1/images/generations',
+      apiProtocol: 'openai-images',
+      apiKey: 'sk-operator',
+      model: 'gpt-image-operator',
+      kind: 'image',
+      isPrimary: true,
+      status: 'connected',
+    })
+
+    store.switchAccount('account-admin')
+    expect(store.models.some((model) => model.id === 'admin-image')).toBe(true)
+    expect(store.models.some((model) => model.id === 'operator-image')).toBe(false)
+
+    store.switchAccount(operator.id)
+    expect(store.models.some((model) => model.id === 'operator-image')).toBe(true)
+    expect(store.models.some((model) => model.id === 'admin-image')).toBe(false)
+  })
+
   it('migrates legacy SamImage output directories to gotbot', () => {
     localStorage.setItem('samimage.v3.state', JSON.stringify({
       models: [],

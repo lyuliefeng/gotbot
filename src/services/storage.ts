@@ -1,6 +1,7 @@
 export interface JsonStorage {
   read<T>(key: string, fallback: T): T
   write<T>(key: string, value: T): void
+  remove(key: string): void
 }
 
 export const browserStorage: JsonStorage = {
@@ -14,5 +15,8 @@ export const browserStorage: JsonStorage = {
   },
   write<T>(key: string, value: T): void {
     localStorage.setItem(key, JSON.stringify(value))
+  },
+  remove(key: string): void {
+    localStorage.removeItem(key)
   },
 }

@@ -37,10 +37,14 @@ import type {
   PromptItem,
   TextPolishInput,
   TextPolishResult,
+  UserAccount,
+  UserAccountRole,
 } from '@/types/domain'
 import { createId } from '@/domain/ids'
 
 const STORAGE_KEY = 'samimage.v3.state'
+const AUTH_STORAGE_KEY = 'gotbot.auth.v1'
+const DEFAULT_ACCOUNT_ID = 'account-admin'
 const fallbackGifDataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh+QQAFAAAACwAAAAAAQABAAACAkQBACH5BAAUAAAALAAAAAABAAEAAAICTAEAOw=='
 const builtinDefaultModelIds = new Set([
   'text-polish',
@@ -60,6 +64,13 @@ interface PersistedState {
   coverPresets: CoverPreset[]
   settings: AppSettings
   promptSync?: PromptSyncState
+}
+
+interface AuthState {
+  accounts: UserAccount[]
+  currentAccountId: string
+  isAuthenticated: boolean
+  accountSecrets: Record<string, string>
 }
 
 export interface ModelRouteGroup {
@@ -92,6 +103,93 @@ type CatalogModelKind = ModelCatalogItem['kind']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+const accountAvatarColors = ['#111827', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#059669']
+
+function accountStateKey(accountId: string): string {
+  return `gotbot.account.${accountId}.state`
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function createDefaultAccount(): UserAccount {
+  const now = new Date().toISOString()
+  return {
+    id: DEFAULT_ACCOUNT_ID,
+    username: 'admin',
+    displayName: '管理员',
+    role: 'admin',
+    isActive: true,
+    avatarColor: accountAvatarColors[0],
+    createdAt: now,
+    lastActiveAt: now,
+  }
+}
+
+function normalizeAccount(value: unknown, index: number): UserAccount | null {
+  if (!isRecord(value)) return null
+  const username = typeof value.username === 'string' ? value.username.trim() : ''
+  const email = typeof value.email === 'string' ? normalizeEmail(value.email) : ''
+  const displayName = typeof value.displayName === 'string' ? value.displayName.trim() : ''
+  if (!username && !displayName && !email) return null
+  const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : createId('account')
+  const now = new Date().toISOString()
+  const role: UserAccountRole = value.role === 'admin' ? 'admin' : 'user'
+  return {
+    id,
+    username: username || email || `user-${index + 1}`,
+    email: email || undefined,
+    displayName: displayName || username || email || `用户 ${index + 1}`,
+    role,
+    isActive: value.isActive !== false,
+    avatarColor: typeof value.avatarColor === 'string' && value.avatarColor.trim()
+      ? value.avatarColor
+      : accountAvatarColors[index % accountAvatarColors.length],
+    createdAt: typeof value.createdAt === 'string' && value.createdAt ? value.createdAt : now,
+    lastActiveAt: typeof value.lastActiveAt === 'string' && value.lastActiveAt ? value.lastActiveAt : now,
+  }
+}
+
+function normalizeAuthState(value: unknown): AuthState {
+  const rawAccounts = isRecord(value) && Array.isArray(value.accounts) ? value.accounts : []
+  let accounts = rawAccounts
+    .map((account, index) => normalizeAccount(account, index))
+    .filter((account): account is UserAccount => Boolean(account))
+
+  if (!accounts.length) accounts = [createDefaultAccount()]
+  if (!accounts.some((account) => account.role === 'admin')) {
+    accounts = accounts.map((account, index) => index === 0 ? { ...account, role: 'admin' } : account)
+  }
+  if (!accounts.some((account) => account.isActive)) {
+    accounts = accounts.map((account, index) => index === 0 ? { ...account, isActive: true } : account)
+  }
+
+  const requestedCurrentId = isRecord(value) && typeof value.currentAccountId === 'string' ? value.currentAccountId : ''
+  const isAuthenticated = isRecord(value) ? value.isAuthenticated === true : false
+  const currentAccount = accounts.find((account) => account.id === requestedCurrentId && account.isActive)
+    ?? accounts.find((account) => account.isActive)
+    ?? accounts[0]
+
+  const rawSecrets = isRecord(value) && isRecord(value.accountSecrets) ? value.accountSecrets : {}
+  const accountSecrets = accounts.reduce<Record<string, string>>((result, account) => {
+    const storedSecret = rawSecrets[account.id]
+    result[account.id] = typeof storedSecret === 'string' && storedSecret ? storedSecret : (account.username === 'admin' ? 'admin123' : 'gotbot123')
+    return result
+  }, {})
+
+  return {
+    accounts,
+    currentAccountId: currentAccount.id,
+    isAuthenticated,
+    accountSecrets,
+  }
 }
 
 function modelCatalogEndpoint(baseUrl: string): string {
@@ -560,7 +658,14 @@ function createFailedGenerationTask(input: GenerationInput, error: unknown, mode
 }
 
 export const useAppStore = defineStore('app', () => {
-  const initial = compactBrowserState(browserStorage.read<PersistedState>(STORAGE_KEY, cloneDefault()))
+  const initialAuth = normalizeAuthState(browserStorage.read<AuthState>(AUTH_STORAGE_KEY, {
+    accounts: [createDefaultAccount()],
+    currentAccountId: DEFAULT_ACCOUNT_ID,
+    isAuthenticated: false,
+    accountSecrets: { [DEFAULT_ACCOUNT_ID]: 'admin123' },
+  }))
+  const legacyInitialState = browserStorage.read<PersistedState>(STORAGE_KEY, cloneDefault())
+  const initial = compactBrowserState(browserStorage.read<PersistedState>(accountStateKey(initialAuth.currentAccountId), legacyInitialState))
   const initialModels = normalizeModelList(initial.models.length ? initial.models : defaultModels)
   const initialSettings = { ...defaultState.settings, ...initial.settings }
   initialSettings.defaultOutputDir = normalizeDefaultOutputDir(initialSettings.defaultOutputDir)
@@ -575,6 +680,10 @@ export const useAppStore = defineStore('app', () => {
   const coverPresets = ref<CoverPreset[]>(initial.coverPresets.length ? initial.coverPresets : cloneDefaultCoverPresets())
   const promptSync = ref<PromptSyncState>(initial.promptSync ?? {})
   const settings = ref<AppSettings>(initialSettings)
+  const accounts = ref<UserAccount[]>(initialAuth.accounts)
+  const currentAccountId = ref(initialAuth.currentAccountId)
+  const isAuthenticated = ref(initialAuth.isAuthenticated)
+  const accountSecrets = ref<Record<string, string>>(initialAuth.accountSecrets)
   const toast = ref<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
   let toastTimer: ReturnType<typeof setTimeout> | undefined
   const activePrompt = ref('')
@@ -589,6 +698,9 @@ export const useAppStore = defineStore('app', () => {
   const primaryVideoModel = computed(() => videoModels.value.find((model) => model.isPrimary) ?? videoModels.value[0])
   const defaultImageModel = computed(() => imageModels.value.find((model) => model.id === settings.value.defaultImageModelId) ?? primaryImageModel.value)
   const textAutoRouteProfiles = computed(() => textRouteCandidates())
+  const activeAccounts = computed(() => accounts.value.filter((account) => account.isActive))
+  const currentAccount = computed(() => accounts.value.find((account) => account.id === currentAccountId.value) ?? activeAccounts.value[0] ?? accounts.value[0])
+  const currentAccountIsAdmin = computed(() => currentAccount.value?.role === 'admin')
   const modelRouteGroups = computed<ModelRouteGroup[]>(() => {
     const groups = new Map<string, ModelRouteGroup>()
     for (const model of models.value) {
@@ -676,16 +788,32 @@ export const useAppStore = defineStore('app', () => {
 
   function persistBrowserState(snapshot: PersistedState): void {
     try {
+      browserStorage.write(accountStateKey(currentAccountId.value), snapshot)
       browserStorage.write(STORAGE_KEY, snapshot)
     } catch (error) {
       console.warn('Failed to persist compact app state to browser storage; retrying after clearing legacy state', error)
       try {
         localStorage.removeItem(STORAGE_KEY)
+        localStorage.removeItem(accountStateKey(currentAccountId.value))
+        browserStorage.write(accountStateKey(currentAccountId.value), snapshot)
         browserStorage.write(STORAGE_KEY, snapshot)
       } catch (retryError) {
         console.warn('Failed to persist compact app state to browser storage after clearing legacy state', retryError)
       }
     }
+  }
+
+  function persistAuthState(): void {
+    browserStorage.write(AUTH_STORAGE_KEY, {
+      accounts: accounts.value,
+      currentAccountId: currentAccountId.value,
+      isAuthenticated: isAuthenticated.value,
+      accountSecrets: accountSecrets.value,
+    })
+  }
+
+  function readAccountState(accountId: string): PersistedState {
+    return compactBrowserState(browserStorage.read<PersistedState>(accountStateKey(accountId), cloneDefault()))
   }
 
   function notify(message: string, type: 'success' | 'error' | 'info' = 'success'): void {
@@ -695,6 +823,191 @@ export const useAppStore = defineStore('app', () => {
       toast.value = null
       toastTimer = undefined
     }, 2400)
+  }
+
+  function saveCurrentAccountWorkspace(): void {
+    persistBrowserState(snapshotBrowserState())
+  }
+
+  function createAccount(input: { username: string; email?: string; displayName?: string; role?: UserAccountRole; isActive?: boolean; accessKey?: string }): UserAccount | null {
+    const email = input.email ? normalizeEmail(input.email) : ''
+    const username = input.username.trim() || email
+    const displayName = input.displayName?.trim() || username
+    const accessKey = input.accessKey?.trim() || 'gotbot123'
+    if (!username) {
+      notify('请输入账号名称', 'error')
+      return null
+    }
+    if (email && !isValidEmail(email)) {
+      notify('请输入有效邮箱地址', 'error')
+      return null
+    }
+    if (accessKey.length < 6) {
+      notify('访问密钥至少 6 个字符', 'error')
+      return null
+    }
+    if (accounts.value.some((account) => account.username.toLowerCase() === username.toLowerCase())) {
+      notify('账号名称已存在', 'error')
+      return null
+    }
+    if (email && accounts.value.some((account) => account.email?.toLowerCase() === email)) {
+      notify('邮箱已注册', 'error')
+      return null
+    }
+
+    const now = new Date().toISOString()
+    const account: UserAccount = {
+      id: createId('account'),
+      username,
+      email: email || undefined,
+      displayName,
+      role: input.role ?? 'user',
+      isActive: input.isActive ?? true,
+      avatarColor: accountAvatarColors[accounts.value.length % accountAvatarColors.length],
+      createdAt: now,
+      lastActiveAt: now,
+    }
+    accounts.value = [...accounts.value, account]
+    accountSecrets.value = { ...accountSecrets.value, [account.id]: accessKey }
+    browserStorage.write(accountStateKey(account.id), compactBrowserState(cloneDefault()))
+    persistAuthState()
+    notify(`已创建账号：${displayName}`)
+    return account
+  }
+
+  function findAccountByIdentifier(identifier: string): UserAccount | undefined {
+    const keyword = normalizeEmail(identifier)
+    if (!keyword) return undefined
+    return activeAccounts.value.find((account) => {
+      return account.username.toLowerCase() === keyword || account.email?.toLowerCase() === keyword
+    })
+  }
+
+  function loginAccount(id: string, accessKey: string): boolean {
+    const target = accounts.value.find((account) => account.id === id && account.isActive)
+    if (!target) {
+      notify('账号不存在或已停用', 'error')
+      return false
+    }
+    if ((accountSecrets.value[id] ?? '').trim() !== accessKey.trim()) {
+      notify('访问密钥不正确', 'error')
+      return false
+    }
+
+    if (target.id !== currentAccountId.value) {
+      saveCurrentAccountWorkspace()
+      currentAccountId.value = target.id
+      applyPersistedState(readAccountState(target.id))
+    }
+    accounts.value = accounts.value.map((account) => account.id === target.id
+      ? { ...account, lastActiveAt: new Date().toISOString() }
+      : account)
+    isAuthenticated.value = true
+    persistAuthState()
+    persistBrowserState(snapshotBrowserState())
+    notify(`欢迎回来，${target.displayName}`)
+    return true
+  }
+
+  function loginAccountByIdentifier(identifier: string, accessKey: string): boolean {
+    const target = findAccountByIdentifier(identifier)
+    if (!target) {
+      notify('账号不存在或已停用', 'error')
+      return false
+    }
+    return loginAccount(target.id, accessKey)
+  }
+
+  function logout(): void {
+    saveCurrentAccountWorkspace()
+    isAuthenticated.value = false
+    persistAuthState()
+    notify('已退出登录', 'info')
+  }
+
+  function updateAccount(id: string, patch: Partial<Pick<UserAccount, 'displayName' | 'role' | 'isActive' | 'avatarColor'>>): boolean {
+    const target = accounts.value.find((account) => account.id === id)
+    if (!target) return false
+    const nextRole = patch.role ?? target.role
+    const nextIsActive = patch.isActive ?? target.isActive
+    const activeAccountCount = accounts.value.filter((account) => account.isActive).length
+    const adminAccountCount = accounts.value.filter((account) => account.role === 'admin').length
+    if (target.role === 'admin' && nextRole !== 'admin' && adminAccountCount <= 1) {
+      notify('至少保留一个管理员账号', 'error')
+      return false
+    }
+    if (target.isActive && !nextIsActive && activeAccountCount <= 1) {
+      notify('至少保留一个可用账号', 'error')
+      return false
+    }
+    if (target.id === currentAccountId.value && !nextIsActive) {
+      notify('不能停用当前账号，请先切换到其他账号', 'error')
+      return false
+    }
+
+    accounts.value = accounts.value.map((account) => account.id === id
+      ? {
+          ...account,
+          ...patch,
+          displayName: patch.displayName?.trim() || account.displayName,
+          role: nextRole,
+          isActive: nextIsActive,
+        }
+      : account)
+    persistAuthState()
+    notify('账号信息已更新')
+    return true
+  }
+
+  function switchAccount(id: string): boolean {
+    const target = accounts.value.find((account) => account.id === id && account.isActive)
+    if (!target) {
+      notify('账号不存在或已停用', 'error')
+      return false
+    }
+    if (target.id === currentAccountId.value) return true
+
+    saveCurrentAccountWorkspace()
+    currentAccountId.value = target.id
+    accounts.value = accounts.value.map((account) => account.id === target.id
+      ? { ...account, lastActiveAt: new Date().toISOString() }
+      : account)
+    applyPersistedState(readAccountState(target.id))
+    persistAuthState()
+    persistBrowserState(snapshotBrowserState())
+    notify(`已切换到账号：${target.displayName}`)
+    return true
+  }
+
+  function removeAccount(id: string): boolean {
+    const target = accounts.value.find((account) => account.id === id)
+    if (!target) return false
+    if (accounts.value.length <= 1) {
+      notify('至少保留一个账号', 'error')
+      return false
+    }
+    if (target.role === 'admin' && accounts.value.filter((account) => account.role === 'admin').length <= 1) {
+      notify('至少保留一个管理员账号', 'error')
+      return false
+    }
+
+    const wasCurrent = target.id === currentAccountId.value
+    const nextAccounts = accounts.value.filter((account) => account.id !== id)
+    const nextCurrent = wasCurrent
+      ? nextAccounts.find((account) => account.isActive) ?? nextAccounts[0]
+      : currentAccount.value
+
+    accounts.value = nextAccounts
+    currentAccountId.value = nextCurrent.id
+    const nextSecrets = { ...accountSecrets.value }
+    delete nextSecrets[id]
+    accountSecrets.value = nextSecrets
+    browserStorage.remove(accountStateKey(id))
+    if (wasCurrent) applyPersistedState(readAccountState(nextCurrent.id))
+    persistAuthState()
+    persistBrowserState(snapshotBrowserState())
+    notify(`已删除账号：${target.displayName}`, 'info')
+    return true
   }
 
   function repairDefaultImageModel(): void {
@@ -1511,6 +1824,12 @@ export const useAppStore = defineStore('app', () => {
     coverPresets,
     promptSync,
     settings,
+    accounts,
+    activeAccounts,
+    currentAccountId,
+    currentAccount,
+    currentAccountIsAdmin,
+    isAuthenticated,
     toast,
     activePrompt,
     activeMode,
@@ -1533,6 +1852,13 @@ export const useAppStore = defineStore('app', () => {
     favoriteTasks,
     favoriteAssets,
     promptSyncSources,
+    createAccount,
+    loginAccount,
+    loginAccountByIdentifier,
+    logout,
+    updateAccount,
+    switchAccount,
+    removeAccount,
     resolveMode,
     setMode,
     setActivePrompt,
