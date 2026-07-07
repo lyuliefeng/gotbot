@@ -1,4 +1,8 @@
 import { vi } from 'vitest'
+import { config } from '@vue/test-utils'
+import i18n from './i18n'
+
+config.global.plugins.push(i18n)
 
 if (!globalThis.localStorage) {
   const storage = new Map<string, string>()

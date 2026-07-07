@@ -9,23 +9,38 @@ import {
   Wrench,
 } from 'lucide-vue-next'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
+import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
 const navItems = [
-  { to: '/', label: '首页', icon: Home },
-  { to: '/workspace', label: '工作台', icon: Layers3 },
-  { to: '/tools', label: '工具库', icon: Wrench },
-  { to: '/history', label: '资产库', icon: Images, badge: computed(() => store.historyAssetCount) },
-  { to: '/operations', label: '操作记录', icon: ClipboardList, badge: computed(() => store.tasks.filter((task) => task.status === 'failed').length) },
-  { to: '/settings', label: '设置', icon: Settings },
-  { to: '/about', label: '关于帮助', icon: CircleHelp },
+  { to: '/', key: 'home', icon: Home },
+  { to: '/workspace', key: 'workspace', icon: Layers3 },
+  { to: '/tools', key: 'tools', icon: Wrench },
+  { to: '/history', key: 'history', icon: Images, badge: computed(() => store.historyAssetCount) },
+  { to: '/operations', key: 'operations', icon: ClipboardList, badge: computed(() => store.tasks.filter((task) => task.status === 'failed').length) },
+  { to: '/settings', key: 'settings', icon: Settings },
+  { to: '/about', key: 'about', icon: CircleHelp },
 ]
+
+const navTitleMap: Record<string, string> = {
+  home: 'nav.home',
+  workspace: 'nav.workspace',
+  tools: 'nav.tools',
+  history: 'nav.history',
+  operations: 'nav.operations',
+  settings: 'nav.settings',
+  about: 'nav.about',
+  login: 'nav.home',
+}
+const pageTitle = computed(() => t(navTitleMap[route.name as string] ?? 'nav.home'))
 
 const imageStatus = computed(() => store.primaryImageModel?.status ?? 'untested')
 const textStatus = computed(() => store.textModels.some((model) => model.status === 'connected') ? 'connected' : 'untested')
@@ -54,13 +69,13 @@ onBeforeUnmount(() => {
       <RouterLink class="brand" to="/">
         <span class="brand-mark">L</span>
         <span class="brand-name">
-          <strong>道听徒说</strong>
-          <span>AI 图像视频创作</span>
+          <strong>{{ t('nav.brand') }}</strong>
+          <span>{{ t('nav.brandSub') }}</span>
         </span>
       </RouterLink>
 
       <div class="sidebar-section">
-        <div class="sidebar-label">导航</div>
+        <div class="sidebar-label">{{ t('nav.section') }}</div>
         <nav class="sidebar-nav">
           <RouterLink
             v-for="item in navItems"
@@ -70,7 +85,7 @@ onBeforeUnmount(() => {
             :to="item.to"
           >
             <component :is="item.icon" :size="16" />
-            {{ item.label }}
+            {{ t('nav.' + item.key) }}
             <span v-if="item.badge?.value" class="badge">{{ item.badge.value }}</span>
           </RouterLink>
         </nav>
@@ -82,14 +97,14 @@ onBeforeUnmount(() => {
             <strong>图像模型</strong>
             <span class="status-pill">
               <span class="status-dot" :class="{ warn: imageStatus !== 'connected' }" />
-              {{ imageStatus === 'connected' ? '已连接' : '待配置' }}
+              {{ imageStatus === 'connected' ? t('common.connected') : t('nav.modelPending') }}
             </span>
           </div>
           <div class="model-status-row">
             <strong>文本模型</strong>
             <span class="status-pill">
               <span class="status-dot" :class="{ warn: textStatus !== 'connected' }" />
-              {{ textStatus === 'connected' ? '已连接' : '未配置' }}
+              {{ textStatus === 'connected' ? t('common.connected') : t('nav.modelNotSet') }}
             </span>
           </div>
         </div>
@@ -100,11 +115,12 @@ onBeforeUnmount(() => {
       <div class="app-topbar">
         <div class="breadcrumb">
           <Images :size="16" />
-          <strong>道听徒说</strong>
+          <strong>{{ t('nav.brand') }}</strong>
           <span>/</span>
-          <span>{{ route.name }}</span>
+          <span>{{ pageTitle }}</span>
         </div>
         <div class="topbar-actions">
+          <LocaleSwitcher />
           <ThemeSwitcher />
         </div>
       </div>

@@ -5,11 +5,12 @@ import { describe, expect, it } from 'vitest'
 const operationPagePath = resolve('src/pages/OperationHistoryPage.vue')
 const routerPath = resolve('src/router.ts')
 const shellPath = resolve('src/components/AppShell.vue')
+const zhCnLocalePath = resolve('src/i18n/locales/zh-CN.ts')
+
+const source = readFileSync(operationPagePath, 'utf8') + '\n' + readFileSync(zhCnLocalePath, 'utf8')
 
 describe('OperationHistoryPage', () => {
   it('lists generation operations with failure diagnostics and retry support', () => {
-    const source = readFileSync(operationPagePath, 'utf8')
-
     expect(source).toContain('store.operationTasks')
     expect(source).toContain("statusFilter = ref<'all' | TaskStatus>('all')")
     expect(source).toContain('task.error')
@@ -23,19 +24,20 @@ describe('OperationHistoryPage', () => {
 
   it('is available from routing and primary navigation', () => {
     const router = readFileSync(routerPath, 'utf8')
-    const shell = readFileSync(shellPath, 'utf8')
+    const shell = readFileSync(shellPath, 'utf8') + '\n' + readFileSync(zhCnLocalePath, 'utf8')
 
     expect(router).toContain("path: '/operations'")
     expect(router).toContain('OperationHistoryPage')
     expect(shell).toContain("to: '/operations'")
-    expect(shell).toContain("label: '操作记录'")
+    // After i18n: nav items use `key` + `t('nav.' + item.key)`; the resolved
+    // label lives in the locale catalog.
+    expect(shell).toContain("key: 'operations'")
+    expect(shell).toContain('操作记录')
     expect(shell).toContain('store.historyAssetCount')
     expect(shell).not.toContain('store.tasks.length')
   })
 
   it('keeps the operation search and record rows responsive', () => {
-    const source = readFileSync(operationPagePath, 'utf8')
-
     expect(source).toContain('class="operation-search"')
     expect(source).toContain('class="operation-filter"')
     expect(source).toContain('.operation-search {')

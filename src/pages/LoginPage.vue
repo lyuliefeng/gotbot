@@ -15,7 +15,9 @@ import {
 } from 'lucide-vue-next'
 import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import { useAppStore } from '@/stores/app'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const store = useAppStore()
 const route = useRoute()
 const router = useRouter()
@@ -49,7 +51,7 @@ function redirectAfterLogin(): void {
 
 function ensureConfirmedSecret(accessKey: string, confirmKey: string): boolean {
   if (accessKey !== confirmKey) {
-    store.notify('两次输入的访问密钥不一致', 'error')
+    store.notify(t('login.notifySecretsMismatch'), 'error')
     return false
   }
   return true
@@ -70,7 +72,7 @@ function generateEmailCode(): string {
 function sendEmailRegisterCode(): void {
   const email = normalizeEmailAddress(emailRegisterAddress.value)
   if (!isValidEmailAddress(email)) {
-    store.notify('请输入有效邮箱地址', 'error')
+    store.notify(t('login.notifyValidEmail'), 'error')
     return
   }
 
@@ -78,24 +80,24 @@ function sendEmailRegisterCode(): void {
   emailRegisterPendingCode.value = code
   emailRegisterCodeEmail.value = email
   emailRegisterCodeExpiresAt.value = Date.now() + 10 * 60 * 1000
-  store.notify(`验证码已发送到 ${email}，演示验证码：${code}`, 'info')
+  store.notify(t('login.notifyCodeSent', { email, code }), 'info')
 }
 
 function verifyEmailRegisterCode(email: string): boolean {
   if (!emailRegisterPendingCode.value) {
-    store.notify('请先获取邮箱验证码', 'error')
+    store.notify(t('login.notifyGetCodeFirst'), 'error')
     return false
   }
   if (emailRegisterCodeEmail.value !== email) {
-    store.notify('邮箱地址已变更，请重新获取验证码', 'error')
+    store.notify(t('login.notifyEmailChanged'), 'error')
     return false
   }
   if (Date.now() > emailRegisterCodeExpiresAt.value) {
-    store.notify('验证码已过期，请重新获取', 'error')
+    store.notify(t('login.notifyCodeExpired'), 'error')
     return false
   }
   if (emailRegisterVerificationCode.value.trim() !== emailRegisterPendingCode.value) {
-    store.notify('验证码不正确', 'error')
+    store.notify(t('login.notifyCodeWrong'), 'error')
     return false
   }
   return true
@@ -158,32 +160,32 @@ function registerEmail(): void {
 
       <div class="showcase-copy">
         <h1>
-          基于 AI 的<br>
-          <span>图像视频创作助手</span>
+          {{ t('login.heading1') }}<br>
+          <span>{{ t('login.heading2') }}</span>
         </h1>
-        <p>从灵感到成稿，围绕「多模型协同、创作流程自动化、模型路由管理、资产沉淀」构建一体化创作工作台。</p>
+        <p>{{ t('login.subtitle') }}</p>
       </div>
 
       <div class="feature-grid">
         <article>
           <WandSparkles :size="16" />
-          <strong>多 AI 模型协同</strong>
-          <span>支持 OpenAI、Agnes、GPT Image2 等模型，按场景灵活切换。</span>
+          <strong>{{ t('login.featureMultiModel') }}</strong>
+          <span>{{ t('login.featureMultiModelDesc') }}</span>
         </article>
         <article>
           <Zap :size="16" />
-          <strong>智能创作入口</strong>
-          <span>自动匹配图像、视频和文本模型，快速进入生成流程。</span>
+          <strong>{{ t('login.featureSmartEntry') }}</strong>
+          <span>{{ t('login.featureSmartEntryDesc') }}</span>
         </article>
         <article>
           <UserRound :size="16" />
-          <strong>多账号工作区</strong>
-          <span>不同账号独立保存模型配置、提示词、任务和系统设置。</span>
+          <strong>{{ t('login.featureMultiAccount') }}</strong>
+          <span>{{ t('login.featureMultiAccountDesc') }}</span>
         </article>
         <article>
           <BookOpen :size="16" />
-          <strong>资产闭环管理</strong>
-          <span>支持生成记录、资产导出、后处理和批量整理。</span>
+          <strong>{{ t('login.featureAssetClosure') }}</strong>
+          <span>{{ t('login.featureAssetClosureDesc') }}</span>
         </article>
       </div>
 
@@ -195,41 +197,41 @@ function registerEmail(): void {
         <span>Cloud Deploy</span>
       </div>
 
-      <footer>© 2026 gotbot · 私有部署</footer>
+      <footer>© 2026 gotbot · {{ t('login.footerPrivate') }}</footer>
     </section>
 
     <section class="login-panel" aria-label="登录 gotbot">
       <div class="login-card">
         <div class="login-title">
-          <h2>欢迎回来</h2>
-          <p>登录 gotbot，继续你的 AI 图像视频创作项目。</p>
+          <h2>{{ t('login.welcome') }}</h2>
+          <p>{{ t('login.welcomeDesc') }}</p>
         </div>
 
         <div class="login-tabs" role="tablist">
-          <button type="button" :class="{ active: activeTab === 'local-login' }" @click="activeTab = 'local-login'">本地登录</button>
-          <button type="button" :class="{ active: activeTab === 'local-register' }" @click="activeTab = 'local-register'">本地注册</button>
-          <button type="button" :class="{ active: activeTab === 'email-login' }" @click="activeTab = 'email-login'">邮箱登录</button>
-          <button type="button" :class="{ active: activeTab === 'email-register' }" @click="activeTab = 'email-register'">邮箱注册</button>
+          <button type="button" :class="{ active: activeTab === 'local-login' }" @click="activeTab = 'local-login'">{{ t('login.tabLocalLogin') }}</button>
+          <button type="button" :class="{ active: activeTab === 'local-register' }" @click="activeTab = 'local-register'">{{ t('login.tabLocalRegister') }}</button>
+          <button type="button" :class="{ active: activeTab === 'email-login' }" @click="activeTab = 'email-login'">{{ t('login.tabEmailLogin') }}</button>
+          <button type="button" :class="{ active: activeTab === 'email-register' }" @click="activeTab = 'email-register'">{{ t('login.tabEmailRegister') }}</button>
         </div>
 
         <form v-if="activeTab === 'local-login'" class="login-form" @submit.prevent="loginLocal">
           <label>
-            <span>管理账号</span>
+            <span>{{ t('login.adminAccount') }}</span>
             <div class="input-shell">
               <UserRound :size="16" />
-              <input v-model.trim="localLoginUsername" autocomplete="username" placeholder="请输入管理账号" />
+              <input v-model.trim="localLoginUsername" autocomplete="username" :placeholder="t('login.placeholderAdmin')" />
             </div>
           </label>
 
           <label>
-            <span>访问密钥</span>
+            <span>{{ t('login.accessKey') }}</span>
             <div class="input-shell">
               <Lock :size="16" />
               <input
                 v-model="localLoginAccessKey"
                 :type="accessKeyVisible ? 'text' : 'password'"
                 autocomplete="current-password"
-                placeholder="请输入访问密钥"
+                :placeholder="t('login.placeholderAccessKey')"
               />
               <button class="icon-button" type="button" @click="accessKeyVisible = !accessKeyVisible">
                 <EyeOff v-if="accessKeyVisible" :size="16" />
@@ -238,48 +240,48 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit" :disabled="!agreedToTerms">登录系统</button>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">{{ t('login.loginSystem') }}</button>
         </form>
 
         <form v-else-if="activeTab === 'local-register'" class="login-form" @submit.prevent="registerLocal">
           <label>
-            <span>管理账号</span>
+            <span>{{ t('login.adminAccount') }}</span>
             <div class="input-shell">
               <UserPlus :size="16" />
-              <input v-model.trim="localRegisterUsername" autocomplete="username" placeholder="设置本地账号名称" />
+              <input v-model.trim="localRegisterUsername" autocomplete="username" :placeholder="t('login.placeholderAdmin')" />
             </div>
           </label>
 
           <label>
-            <span>显示名称</span>
+            <span>{{ t('login.displayName') }}</span>
             <div class="input-shell">
               <UserRound :size="16" />
-              <input v-model.trim="localRegisterDisplayName" autocomplete="name" placeholder="例如：运营账号" />
+              <input v-model.trim="localRegisterDisplayName" autocomplete="name" :placeholder="t('login.placeholderDisplayName')" />
             </div>
           </label>
 
           <label>
-            <span>访问密钥</span>
+            <span>{{ t('login.accessKey') }}</span>
             <div class="input-shell">
               <Lock :size="16" />
               <input
                 v-model="localRegisterAccessKey"
                 :type="accessKeyVisible ? 'text' : 'password'"
                 autocomplete="new-password"
-                placeholder="至少 6 个字符"
+                :placeholder="t('login.placeholderAtLeast6')"
               />
             </div>
           </label>
 
           <label>
-            <span>确认密钥</span>
+            <span>{{ t('login.confirmKey') }}</span>
             <div class="input-shell">
               <Lock :size="16" />
               <input
                 v-model="localRegisterConfirmKey"
                 :type="accessKeyVisible ? 'text' : 'password'"
                 autocomplete="new-password"
-                placeholder="再次输入访问密钥"
+                :placeholder="t('login.placeholderConfirmKey')"
               />
               <button class="icon-button" type="button" @click="accessKeyVisible = !accessKeyVisible">
                 <EyeOff v-if="accessKeyVisible" :size="16" />
@@ -288,28 +290,28 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit" :disabled="!agreedToTerms">创建本地账号</button>
-          <p class="form-note">创建后会自动登录，并为该账号生成独立工作区。</p>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">{{ t('login.createLocalAccount') }}</button>
+          <p class="form-note">{{ t('login.formNoteRegister') }}</p>
         </form>
 
         <form v-else-if="activeTab === 'email-login'" class="login-form" @submit.prevent="loginEmail">
           <label>
-            <span>邮箱地址</span>
+            <span>{{ t('login.emailAddress') }}</span>
             <div class="input-shell">
               <Mail :size="16" />
-              <input v-model.trim="emailLoginAddress" autocomplete="email" inputmode="email" placeholder="请输入邮箱地址" />
+              <input v-model.trim="emailLoginAddress" autocomplete="email" inputmode="email" :placeholder="t('login.placeholderEmail')" />
             </div>
           </label>
 
           <label>
-            <span>登录密钥</span>
+            <span>{{ t('login.loginKey') }}</span>
             <div class="input-shell">
               <Lock :size="16" />
               <input
                 v-model="emailLoginAccessKey"
                 :type="accessKeyVisible ? 'text' : 'password'"
                 autocomplete="current-password"
-                placeholder="请输入邮箱账号密钥"
+                :placeholder="t('login.placeholderEmailKey')"
               />
               <button class="icon-button" type="button" @click="accessKeyVisible = !accessKeyVisible">
                 <EyeOff v-if="accessKeyVisible" :size="16" />
@@ -318,54 +320,54 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit" :disabled="!agreedToTerms">邮箱登录</button>
-          <p class="form-note">邮箱账号与本地账号共用本机安全存储，后续可接入服务器 Session。</p>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">{{ t('login.tabEmailLogin') }}</button>
+          <p class="form-note">{{ t('login.emailLoginNote') }}</p>
         </form>
 
         <form v-else class="login-form" @submit.prevent="registerEmail">
           <label>
-            <span>邮箱地址</span>
+            <span>{{ t('login.emailAddress') }}</span>
             <div class="input-shell">
               <Mail :size="16" />
-              <input v-model.trim="emailRegisterAddress" autocomplete="email" inputmode="email" placeholder="请输入邮箱地址" />
+              <input v-model.trim="emailRegisterAddress" autocomplete="email" inputmode="email" :placeholder="t('login.placeholderEmail')" />
             </div>
           </label>
 
           <label>
-            <span>邮箱验证码</span>
+            <span>{{ t('login.emailCode') }}</span>
             <div class="verification-row">
               <div class="input-shell">
                 <ShieldCheck :size="16" />
-                <input v-model.trim="emailRegisterVerificationCode" inputmode="numeric" maxlength="6" placeholder="请输入 6 位验证码" />
+                <input v-model.trim="emailRegisterVerificationCode" inputmode="numeric" maxlength="6" :placeholder="t('login.placeholderEmailCode')" />
               </div>
               <button class="code-button" type="button" @click="sendEmailRegisterCode">
-                {{ emailRegisterPendingCode ? '重新发送' : '发送验证码' }}
+                {{ emailRegisterPendingCode ? t('login.resendCode') : t('login.sendCode') }}
               </button>
             </div>
           </label>
 
           <label>
-            <span>登录密钥</span>
+            <span>{{ t('login.loginKey') }}</span>
             <div class="input-shell">
               <Lock :size="16" />
               <input
                 v-model="emailRegisterAccessKey"
                 :type="accessKeyVisible ? 'text' : 'password'"
                 autocomplete="new-password"
-                placeholder="至少 6 个字符"
+                :placeholder="t('login.placeholderAtLeast6')"
               />
             </div>
           </label>
 
           <label>
-            <span>确认密钥</span>
+            <span>{{ t('login.confirmKey') }}</span>
             <div class="input-shell">
               <Lock :size="16" />
               <input
                 v-model="emailRegisterConfirmKey"
                 :type="accessKeyVisible ? 'text' : 'password'"
                 autocomplete="new-password"
-                placeholder="再次输入登录密钥"
+                :placeholder="t('login.placeholderConfirmLoginKey')"
               />
               <button class="icon-button" type="button" @click="accessKeyVisible = !accessKeyVisible">
                 <EyeOff v-if="accessKeyVisible" :size="16" />
@@ -374,13 +376,13 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit" :disabled="!agreedToTerms">邮箱注册</button>
-          <p class="form-note">验证码 10 分钟内有效；注册后可直接用邮箱登录，模型配置和资产会按账号隔离。</p>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">{{ t('login.emailRegister') }}</button>
+          <p class="form-note">{{ t('login.emailRegisterNote') }}</p>
         </form>
 
         <label class="oauth-agree">
           <input v-model="agreedToTerms" type="checkbox" class="oauth-agree-check" />
-          <span>我已阅读并同意<a href="#" @click.prevent>《用户协议》</a>和<a href="#" @click.prevent>《隐私政策》</a></span>
+          <span>{{ t('login.agreeTerms') }}<a href="#" @click.prevent>{{ t('login.userAgreement') }}</a>{{ t('common.conjunctionAnd') }}<a href="#" @click.prevent>{{ t('login.privacyPolicy') }}</a></span>
         </label>
       </div>
     </section>

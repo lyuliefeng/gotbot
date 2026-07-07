@@ -8,8 +8,10 @@ import { resolveToolIcon } from '@/domain/icons'
 import { useAppStore } from '@/stores/app'
 import { pickDirectory } from '@/services/desktop'
 import EmptyState from '@/components/EmptyState.vue'
+import { useI18n } from 'vue-i18n'
 import type { ExportFormat, GeneratedAsset, GenerationMode, GenerationTask, ModelProfile } from '@/types/domain'
 
+const { t } = useI18n()
 const router = useRouter()
 const store = useAppStore()
 const selectedRecent = ref<{ task: GenerationTask; asset: GeneratedAsset } | null>(null)
@@ -28,8 +30,8 @@ interface ModelSummaryRow {
 }
 
 function modelTag(model: ModelProfile | undefined): string {
-  if (!model) return '未配置'
-  return model.model || '未设置'
+  if (!model) return t('home.modelTagUnconfigured')
+  return model.model || t('home.modelTagUnset')
 }
 
 function isModelConfigured(model: ModelProfile | undefined): boolean {
@@ -38,10 +40,10 @@ function isModelConfigured(model: ModelProfile | undefined): boolean {
 }
 
 function modelStatus(model: ModelProfile | undefined): Pick<ModelSummaryRow, 'statusLabel' | 'tone'> {
-  if (!isModelConfigured(model)) return { statusLabel: '未配置', tone: 'warn' }
-  if (model?.status === 'failed') return { statusLabel: '失败', tone: 'error' }
-  if (model?.status === 'connected') return { statusLabel: '已连接', tone: 'ok' }
-  return { statusLabel: '待检测', tone: 'warn' }
+  if (!isModelConfigured(model)) return { statusLabel: t('home.modelTagUnconfigured'), tone: 'warn' }
+  if (model?.status === 'failed') return { statusLabel: t('home.statusFailed'), tone: 'error' }
+  if (model?.status === 'connected') return { statusLabel: t('home.statusConnected'), tone: 'ok' }
+  return { statusLabel: t('home.statusPending'), tone: 'warn' }
 }
 
 const modelRows = computed<ModelSummaryRow[]>(() => {
@@ -53,27 +55,27 @@ const modelRows = computed<ModelSummaryRow[]>(() => {
   return [
     {
       id: 'primary-image',
-      label: '主图像模型',
+      label: t('home.modelPrimaryImage'),
       tag: modelTag(imageModel),
       ...modelStatus(imageModel),
     },
     {
       id: 'primary-video',
-      label: '主视频模型',
+      label: t('home.modelPrimaryVideo'),
       tag: modelTag(videoModel),
       ...modelStatus(videoModel),
     },
     {
       id: 'primary-text',
-      label: '文本生成/润色模型',
+      label: t('home.modelPrimaryText'),
       tag: modelTag(textModel),
       ...modelStatus(textModel),
     },
     {
       id: 'api-key',
-      label: 'API Key',
-      tag: apiKeyReady ? '本地已保存' : '未设置',
-      statusLabel: apiKeyReady ? '已设置' : '未设置',
+      label: t('home.modelApiKey'),
+      tag: apiKeyReady ? t('home.statusSet') : t('home.modelTagUnset'),
+      statusLabel: apiKeyReady ? t('home.statusSet') : t('home.modelTagUnset'),
       tone: apiKeyReady ? 'ok' : 'warn',
     },
   ]
@@ -162,7 +164,7 @@ async function chooseRecentExportDir(): Promise<void> {
   if (!directory) return
 
   store.saveSettings({ defaultOutputDir: directory })
-  store.notify(`已选择导出目录：${directory}`)
+  store.notify(t('home.notifyExportDir', { dir: directory }))
 }
 </script>
 
@@ -170,14 +172,14 @@ async function chooseRecentExportDir(): Promise<void> {
   <div class="page">
     <section class="home-hero card">
       <div>
-        <p class="page-kicker">道听徒说</p>
-        <h1 class="page-title">你的私人图像视频创作台</h1>
-        <p class="page-desc">移动端优先，配置留在本地；支持文生图、图生图、文生视频、图生视频和常用设计工作流。</p>
+        <p class="page-kicker">{{ t('nav.brand') }}</p>
+        <h1 class="page-title">{{ t('home.title') }}</h1>
+        <p class="page-desc">{{ t('home.desc') }}</p>
         <div class="hero-chips" aria-label="核心能力">
-          <span>文生图</span>
-          <span>图生图</span>
-          <span>文生视频</span>
-          <span>图生视频</span>
+          <span>{{ t('home.chipTxt2img') }}</span>
+          <span>{{ t('home.chipImg2img') }}</span>
+          <span>{{ t('home.chipTxt2video') }}</span>
+          <span>{{ t('home.chipImg2video') }}</span>
         </div>
       </div>
       <div class="hero-preview" aria-hidden="true">
@@ -196,15 +198,15 @@ async function chooseRecentExportDir(): Promise<void> {
         </span>
         <RouterLink class="btn-primary" to="/workspace">
           <WandSparkles :size="16" />
-          开始创作
+          {{ t('home.startCreate') }}
         </RouterLink>
       </div>
     </section>
 
     <section class="home-section">
       <div class="section-head">
-        <h2><span class="section-dot" />快速开始</h2>
-        <span class="mono">{{ quickTools.length }} 工具</span>
+        <h2><span class="section-dot" />{{ t('home.sectionQuickStart') }}</h2>
+        <span class="mono">{{ t('home.toolsCount', { n: quickTools.length }) }}</span>
       </div>
       <div class="grid grid-3">
         <RouterLink v-for="tool in quickTools" :key="tool.title" class="tool-card quick-tool-card" :class="`tone-${quickToolTone(tool)}`" :to="toolWorkspaceLink(tool)">
@@ -219,10 +221,10 @@ async function chooseRecentExportDir(): Promise<void> {
 
     <section class="home-section">
       <div class="section-head">
-        <h2><span class="section-dot" />本地模型状态</h2>
+        <h2><span class="section-dot" />{{ t('home.sectionModelStatus') }}</h2>
         <RouterLink class="btn-soft btn-sm" to="/settings">
           <Settings :size="14" />
-          配置模型
+          {{ t('home.configModels') }}
         </RouterLink>
       </div>
       <div class="card">
@@ -243,8 +245,8 @@ async function chooseRecentExportDir(): Promise<void> {
 
     <section class="home-section">
       <div class="section-head">
-        <h2><span class="section-dot" />常用封面预设</h2>
-        <RouterLink class="mono" to="/tools">查看全部 -></RouterLink>
+        <h2><span class="section-dot" />{{ t('home.sectionCoverPresets') }}</h2>
+        <RouterLink class="mono" to="/tools">{{ t('home.viewAll') }}</RouterLink>
       </div>
       <div class="preset-grid">
         <RouterLink
@@ -261,8 +263,8 @@ async function chooseRecentExportDir(): Promise<void> {
 
     <section class="home-section">
       <div class="section-head">
-        <h2><span class="section-dot" />最近生成</h2>
-        <RouterLink class="mono" to="/history">查看全部 -></RouterLink>
+        <h2><span class="section-dot" />{{ t('home.sectionRecent') }}</h2>
+        <RouterLink class="mono" to="/history">{{ t('home.viewAll') }}</RouterLink>
       </div>
       <div v-if="store.recentTasks.length" class="recent-grid">
         <button
@@ -278,7 +280,7 @@ async function chooseRecentExportDir(): Promise<void> {
           </div>
           <div class="recent-meta">
             <span>{{ modeLabels[task.mode] }}</span>
-            <small>{{ task.assets.length }} 个</small>
+            <small>{{ t('home.assetCount', { n: task.assets.length }) }}</small>
           </div>
           <strong>{{ task.prompt }}</strong>
         </button>
@@ -286,8 +288,8 @@ async function chooseRecentExportDir(): Promise<void> {
       <EmptyState
         v-else
         :icon="Sparkles"
-        title="还没有生成记录"
-        description="进入工作台创建第一张图。"
+        :title="t('home.recentEmptyTitle')"
+        :description="t('home.recentEmptyDesc')"
       />
     </section>
 
@@ -295,8 +297,8 @@ async function chooseRecentExportDir(): Promise<void> {
       <div class="modal">
         <div class="modal-head">
           <div>
-            <h2>生成详情</h2>
-            <p class="muted">查看最近生成结果，复用提示词或导出到本地。</p>
+            <h2>{{ t('home.detailTitle') }}</h2>
+            <p class="muted">{{ t('home.detailDesc') }}</p>
           </div>
           <button class="btn-icon" type="button" @click="selectedRecent = null">×</button>
         </div>
@@ -304,13 +306,13 @@ async function chooseRecentExportDir(): Promise<void> {
           <video v-if="isVideoAsset(selectedRecent.asset)" :src="selectedRecent.asset.remoteUrl ?? selectedRecent.asset.dataUrl" controls playsinline />
           <img v-else :src="selectedRecent.asset.dataUrl" :alt="selectedRecent.asset.title" />
           <div class="stack">
-            <div class="detail-row"><span>生成类型</span><strong>{{ modeLabels[selectedRecent.task.mode] }}</strong></div>
-            <div class="detail-row"><span>模型</span><strong>{{ selectedRecent.task.modelId }}</strong></div>
-            <div class="detail-row"><span>尺寸</span><strong>{{ selectedRecent.asset.width }} x {{ selectedRecent.asset.height }}</strong></div>
+            <div class="detail-row"><span>{{ t('home.detailType') }}</span><strong>{{ modeLabels[selectedRecent.task.mode] }}</strong></div>
+            <div class="detail-row"><span>{{ t('home.detailModel') }}</span><strong>{{ selectedRecent.task.modelId }}</strong></div>
+            <div class="detail-row"><span>{{ t('home.detailSize') }}</span><strong>{{ selectedRecent.asset.width }} x {{ selectedRecent.asset.height }}</strong></div>
             <div class="detail-row">
-              <span>状态</span>
+              <span>{{ t('home.detailStatus') }}</span>
               <strong :class="{ 'status-error': selectedRecent.task.status === 'failed' }">
-                {{ selectedRecent.task.status === 'failed' ? '失败' : selectedRecent.task.status === 'completed' ? '已完成' : selectedRecent.task.status }}
+                {{ selectedRecent.task.status === 'failed' ? t('home.detailStatusFailed') : selectedRecent.task.status === 'completed' ? t('home.detailStatusCompleted') : selectedRecent.task.status }}
               </strong>
             </div>
             <div v-if="selectedRecent.task.error" class="prompt-box error-box">{{ selectedRecent.task.error }}</div>
@@ -320,15 +322,15 @@ async function chooseRecentExportDir(): Promise<void> {
         <div class="modal-foot">
           <button class="btn-soft" type="button" @click="reusePrompt(selectedRecent.task)">
             <Eye :size="15" />
-            复用提示词
+            {{ t('home.reusePrompt') }}
           </button>
           <button v-if="selectedRecent.task.status === 'failed'" class="btn-soft" type="button" @click="retryRecent(selectedRecent.task)">
             <RotateCcw :size="15" />
-            失败重新生成
+            {{ t('home.retryFailed') }}
           </button>
           <button class="btn-primary" type="button" @click="openRecentExport">
             <Download :size="15" />
-            导出到本地
+            {{ t('home.exportLocal') }}
           </button>
         </div>
       </div>
@@ -338,41 +340,41 @@ async function chooseRecentExportDir(): Promise<void> {
       <div class="modal small">
         <div class="modal-head">
           <div>
-            <h2>导出到本地</h2>
-            <p class="muted">默认读取设置中的输出目录，也可以临时调整格式。</p>
+            <h2>{{ t('home.exportTitle') }}</h2>
+            <p class="muted">{{ t('home.exportDesc') }}</p>
           </div>
           <button class="btn-icon" type="button" @click="exportOpen = false">×</button>
         </div>
         <div class="modal-body stack">
           <div class="field">
-            <label for="home-export-dir">导出目录</label>
+            <label for="home-export-dir">{{ t('home.exportDir') }}</label>
             <div class="directory-picker">
               <input id="home-export-dir" v-model="store.settings.defaultOutputDir" />
               <button class="btn-soft" type="button" @click="chooseRecentExportDir">
                 <FolderOpen :size="16" />
-                重新选择目录
+                {{ t('home.reselectDir') }}
               </button>
             </div>
           </div>
           <div class="field">
-            <label for="home-export-format">格式</label>
+            <label for="home-export-format">{{ t('home.exportFormat') }}</label>
             <select id="home-export-format" v-model="exportFormat">
               <option v-for="option in availableExportFormatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </div>
-          <p v-if="exportFormat === 'ico'" class="muted">ICO 会自动打包常用图标尺寸，并跳过超过当前源图尺寸的规格。</p>
-          <p class="muted">导出将使用最近生成结果并保留可用的提示词元数据。</p>
+          <p v-if="exportFormat === 'ico'" class="muted">{{ t('home.icoNote') }}</p>
+          <p class="muted">{{ t('home.exportMetaNote') }}</p>
         </div>
         <div class="modal-foot">
-          <button class="btn-soft" type="button" @click="exportOpen = false">取消</button>
-          <button class="btn-primary" type="button" @click="confirmRecentExport">确认导出</button>
+          <button class="btn-soft" type="button" @click="exportOpen = false">{{ t('common.cancel') }}</button>
+          <button class="btn-primary" type="button" @click="confirmRecentExport">{{ t('home.confirmExport') }}</button>
         </div>
       </div>
     </div>
 
     <section class="privacy-card">
       <ShieldCheck :size="20" />
-      <span><strong>本地隐私安全</strong>：配置、提示词和资产库记录默认保存在本地，只有主动调用模型 API 时才联网。</span>
+      <span><strong>{{ t('home.privacyTitle') }}</strong>：{{ t('home.privacyText') }}</span>
     </section>
   </div>
 </template>

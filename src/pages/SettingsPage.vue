@@ -3,11 +3,14 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Download, FileText, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 import { exportFormatOptions, stylePresets } from '@/data/catalog'
 import { useAppStore, type ModelRouteGroup } from '@/stores/app'
 import type { ModelCatalogItem, ModelProfile, PromptItem } from '@/types/domain'
 import { createId } from '@/domain/ids'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const store = useAppStore()
 const router = useRouter()
 const activeTab = ref<'models' | 'prompts' | 'generation' | 'system'>('models')
@@ -93,37 +96,37 @@ type BaseUrlPreset = {
 const channelPresets: ChannelPreset[] = [
   { id: 'openai', label: 'OpenAI', name: 'OpenAI', endpoint: 'https://api.openai.com' },
   { id: 'agnes', label: 'Agnes', name: 'Agnes', endpoint: 'https://apihub.agnes-ai.com' },
-  { id: 'third-party', label: '第三方接口', name: '第三方接口', endpoint: '' },
+  { id: 'third-party', label: t('settings.channelThirdParty'), name: t('settings.channelThirdParty'), endpoint: '' },
 ]
 const channelBaseUrlPresets: BaseUrlPreset[] = [
-  { id: 'openai', label: 'OpenAI 路由', endpoint: 'https://api.openai.com' },
-  { id: 'agnes', label: 'Agnes 路由', endpoint: 'https://apihub.agnes-ai.com' },
-  { id: 'custom', label: '第三方接口', endpoint: '' },
+  { id: 'openai', label: 'OpenAI', endpoint: 'https://api.openai.com' },
+  { id: 'agnes', label: 'Agnes', endpoint: 'https://apihub.agnes-ai.com' },
+  { id: 'custom', label: t('settings.channelThirdParty'), endpoint: '' },
 ]
 
 const textProtocolOptions: ProtocolOption[] = [
-  { value: 'openai-chat', label: 'OpenAI 通用标准', path: 'v1/chat/completions' },
-  { value: 'anthropic-messages', label: 'Anthropic 协议', path: 'v1/messages' },
+  { value: 'openai-chat', label: t('settings.protocolOpenaiStandard'), path: 'v1/chat/completions' },
+  { value: 'anthropic-messages', label: t('settings.protocolAnthropic'), path: 'v1/messages' },
 ]
 const imageProtocolOptions: ProtocolOption[] = [
-  { value: 'agnes-image', label: 'Agnes Image', path: 'v1/images/generations' },
-  { value: 'openai-images', label: 'OpenAI Images', path: 'v1/images/generations' },
-  { value: 'dashscope-wanxiang', label: '阿里云通义万相', path: 'api/v1/services/aigc/multimodal-generation/generation' },
-  { value: 'mgtv-storyboard', label: '芒果 AIGC 分镜生图', path: 'openapi/v1/storyboard/generateByPromptV2' },
-  { value: 'openai-image-edits', label: 'Images Edits / 自定义编辑', path: 'v1/images/edits' },
-  { value: 'multimodal-chat', label: '多模态 Chat', path: 'v1/chat/completions' },
+  { value: 'agnes-image', label: t('settings.protocolAgnesImage'), path: 'v1/images/generations' },
+  { value: 'openai-images', label: t('settings.protocolOpenaiImages'), path: 'v1/images/generations' },
+  { value: 'dashscope-wanxiang', label: t('settings.protocolDashscope'), path: 'api/v1/services/aigc/multimodal-generation/generation' },
+  { value: 'mgtv-storyboard', label: t('settings.protocolMgtv'), path: 'openapi/v1/storyboard/generateByPromptV2' },
+  { value: 'openai-image-edits', label: t('settings.protocolImagesEdits'), path: 'v1/images/edits' },
+  { value: 'multimodal-chat', label: t('settings.protocolMultimodal'), path: 'v1/chat/completions' },
 ]
 const videoProtocolOptions: ProtocolOption[] = [
-  { value: 'agnes-video', label: 'Agnes Video', path: 'v1/videos' },
+  { value: 'agnes-video', label: t('settings.protocolAgnesVideo'), path: 'v1/videos' },
 ]
 const ttsProtocolOptions: ProtocolOption[] = [
-  { value: 'openai-audio-speech', label: 'OpenAI Audio Speech', path: 'v1/audio/speech' },
+  { value: 'openai-audio-speech', label: t('settings.protocolOpenaiSpeech'), path: 'v1/audio/speech' },
 ]
 const modelManagerKindTabs: Array<{ value: ModelProfile['kind']; label: string }> = [
-  { value: 'image', label: '图像' },
-  { value: 'video', label: '视频' },
-  { value: 'text', label: '文本' },
-  { value: 'tts', label: '语音' },
+  { value: 'image', label: t('settings.kind.image') },
+  { value: 'video', label: t('settings.kind.video') },
+  { value: 'text', label: t('settings.kind.text') },
+  { value: 'tts', label: t('settings.kind.tts') },
 ]
 
 const promptSources = computed(() => Array.from(new Set(store.prompts.map((item) => item.source))))
@@ -231,7 +234,7 @@ const activeApiChannelEntry = computed(() => {
     ?? savedApiChannelEntries.value[0]
 })
 const modelEditorTitle = computed(() => {
-  return store.models.some((model) => model.id === editingModelId.value) ? '编辑渠道' : '新增渠道'
+  return store.models.some((model) => model.id === editingModelId.value) ? t('settings.modalTitleEdit') : t('settings.modalTitleNew')
 })
 
 type ModelStatusTone = 'ok' | 'warn' | 'error'
@@ -244,7 +247,7 @@ function promptCategoryLabel(category?: string): string {
     'E-commerceCaes': '电商案例',
     'E-commerceCases': '电商案例',
   }
-  return map[category ?? ''] ?? category ?? '未分类'
+  return map[category ?? ''] ?? category ?? t('settings.categoryUncategorized')
 }
 
 function defaultApiPath(kind: ModelCatalogEntry['kind'] | ModelProfile['kind']): string {
@@ -366,17 +369,17 @@ function syncPresetStateFromModel(model: ModelProfile): void {
 
 function modelKindLabel(kind: ModelCatalogEntry['kind'] | ModelProfile['kind']): string {
   const labels: Record<string, string> = {
-    image: '图像',
-    text: '文本',
-    tts: '语音',
-    video: '视频',
-    unknown: '未知',
+    image: t('settings.kind.image'),
+    text: t('settings.kind.text'),
+    tts: t('settings.kind.tts'),
+    video: t('settings.kind.video'),
+    unknown: t('settings.kind.unknown'),
   }
   return labels[kind] ?? kind
 }
 
 function channelDefaultKindLabel(): string {
-  return channelDefaultModelKind.value === 'all' ? '模型' : `${modelKindLabel(channelDefaultModelKind.value)}模型`
+  return channelDefaultModelKind.value === 'all' ? t('settings.modelsAll') : `${modelKindLabel(channelDefaultModelKind.value)}${t('settings.modelsAll')}`
 }
 
 function isModelTesting(id: string): boolean {
@@ -385,7 +388,7 @@ function isModelTesting(id: string): boolean {
 
 function routeCatalogUrl(model: ModelProfile): string {
   const endpoint = model.endpoint.trim()
-  if (!endpoint) return '未配置模型接口'
+  if (!endpoint) return t('settings.endpointNotConfigured')
   return `${endpoint.replace(/\/+$/g, '')}/v1/models`
 }
 
@@ -403,12 +406,12 @@ function endpointChannelName(endpoint: string): string {
 function resolvedDraftChannelName(): string {
   const endpointName = endpointChannelName(draft.value.endpoint)
   const typedName = draft.value.name.trim()
-  if (endpointName && (!typedName || typedName === '第三方接口' || channelBaseUrlPresetId.value !== 'custom')) return endpointName
-  return typedName || channelPresets.find((preset) => preset.id === channelPresetId.value)?.name || endpointName || '第三方接口'
+  if (endpointName && (!typedName || typedName === t('settings.channelThirdParty') || channelBaseUrlPresetId.value !== 'custom')) return endpointName
+  return typedName || channelPresets.find((preset) => preset.id === channelPresetId.value)?.name || endpointName || t('settings.channelThirdParty')
 }
 
 function apiChannelName(profile: ModelProfile): string {
-  return endpointChannelName(profile.endpoint) || profile.name.trim() || '第三方接口'
+  return endpointChannelName(profile.endpoint) || profile.name.trim() || t('settings.channelThirdParty')
 }
 
 function protocolTypeLabel(protocol: NonNullable<ModelProfile['apiProtocol']>): string {
@@ -433,10 +436,10 @@ function apiRouteStatusClass(model: ModelProfile): string {
 }
 
 function routeResponseLabel(model: ModelProfile): string {
-  if (!model.lastCheckedAt) return '未检测'
+  if (!model.lastCheckedAt) return t('settings.routeStatus.pending')
   const date = new Date(model.lastCheckedAt)
-  if (Number.isNaN(date.getTime())) return '已检测'
-  return new Intl.DateTimeFormat('zh-CN', {
+  if (Number.isNaN(date.getTime())) return t('settings.responseInspected')
+  return new Intl.DateTimeFormat(undefined, {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -452,8 +455,8 @@ function apiChannelStatusProfile(entry: ApiChannelEntry): ModelProfile {
 }
 
 function apiChannelStatusLabel(entry: ApiChannelEntry): string {
-  if (entry.profiles.some((profile) => profile.status === 'connected')) return '启用'
-  if (entry.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return '禁用'
+  if (entry.profiles.some((profile) => profile.status === 'connected')) return t('settings.channelEnabled')
+  if (entry.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return t('settings.channelDisabled')
   return modelStatusMeta(apiChannelStatusProfile(entry)).label
 }
 
@@ -483,7 +486,7 @@ function apiChannelModelCountLabel(entry: ApiChannelEntry): string {
 
 function apiChannelModelSummary(entry: ApiChannelEntry): string {
   const kinds = Array.from(new Set(entry.profiles.map((profile) => modelKindLabel(profile.kind))))
-  return `${kinds.join(' / ')} · ${entry.profiles.length} 个模型`
+  return t('settings.channelSummary', { kinds: kinds.join(' / '), n: entry.profiles.length })
 }
 
 function modelRouteGroupPrimaryProfile(group: ModelRouteGroup): ModelProfile | undefined {
@@ -495,9 +498,9 @@ function modelRouteGroupChannelNames(group: ModelRouteGroup): string[] {
 }
 
 function modelRouteGroupStatusLabel(group: ModelRouteGroup): string {
-  if (group.profiles.some((profile) => profile.status === 'connected')) return '可用'
-  if (group.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return '不可用'
-  return '待检测'
+  if (group.profiles.some((profile) => profile.status === 'connected')) return t('settings.routeStatus.available')
+  if (group.profiles.every((profile) => modelStatusMeta(profile).tone === 'error')) return t('settings.routeStatus.unavailable')
+  return t('settings.routeStatus.pending')
 }
 
 function modelRouteGroupStatusClass(group: ModelRouteGroup): string {
@@ -508,17 +511,23 @@ function modelRouteGroupStatusClass(group: ModelRouteGroup): string {
 
 function modelRouteGroupMetaLine(group: ModelRouteGroup): string {
   const connectedCount = group.profiles.filter((profile) => profile.status === 'connected').length
-  const fallbackLabel = group.profiles.length > 1 ? '自动路由回退' : '单上游路由'
+  const fallbackLabel = group.profiles.length > 1 ? t('settings.autoFallback') : t('settings.singleUpstreamRoute')
   const primaryProfile = modelRouteGroupPrimaryProfile(group)
-  const primaryChannel = primaryProfile ? apiChannelName(primaryProfile) : '未配置渠道'
-  return `${modelKindLabel(group.kind)} · ${group.profiles.length} 个上游 · ${connectedCount} 个可用 · 默认 ${primaryChannel} · ${fallbackLabel}`
+  const primaryChannel = primaryProfile ? apiChannelName(primaryProfile) : t('settings.noUpstreams')
+  return t('settings.metaLine', {
+    kind: modelKindLabel(group.kind),
+    n: group.profiles.length,
+    m: connectedCount,
+    channel: primaryChannel,
+    fallback: fallbackLabel,
+  })
 }
 
 function modelRouteGroupChannelSummary(group: ModelRouteGroup): string {
   const names = modelRouteGroupChannelNames(group)
-  if (!names.length) return '暂无上游'
+  if (!names.length) return t('settings.noUpstreams')
   if (names.length <= 2) return names.join(' / ')
-  return `${names.slice(0, 2).join(' / ')} +${names.length - 2}`
+  return `${names.slice(0, 2).join(' / ')} ${t('settings.moreUpstreams', { n: names.length - 2 })}`
 }
 
 function sortApiChannelProfiles(profiles: ModelProfile[]): ModelProfile[] {
@@ -540,7 +549,7 @@ function selectApiChannel(entry: ApiChannelEntry): void {
 }
 
 function removeApiChannelWithConfirmation(entry: ApiChannelEntry): void {
-  const confirmed = window.confirm(`确定删除 API 渠道「${entry.name}」及 ${entry.profiles.length} 个模型？此操作会移除该上游的 API 地址、Key 和连接状态。`)
+  const confirmed = window.confirm(t('settings.confirmDeleteChannel', { name: entry.name, n: entry.profiles.length }))
   if (!confirmed) return
 
   for (const profile of entry.profiles) store.removeModel(profile.id)
@@ -608,12 +617,12 @@ async function testModelConnection(id: string): Promise<void> {
 
 function newModel(kind: ModelProfile['kind'] = 'image'): void {
   const defaultName = kind === 'text'
-    ? '第三方大语言模型'
+    ? t('settings.newModel.text')
     : kind === 'video'
-      ? '第三方视频模型'
+      ? t('settings.newModel.video')
       : kind === 'tts'
-        ? '第三方语音模型'
-        : '第三方生图模型'
+        ? t('settings.newModel.tts')
+        : t('settings.newModel.image')
   draft.value = {
     id: createId('model'),
     name: defaultName,
@@ -677,13 +686,13 @@ function modelProfileFromCatalogItem(item: ModelCatalogEntry): ModelProfile {
 
 function saveDraft(): void {
   if (!draft.value.name.trim()) {
-    store.notify('请输入模型名称', 'error')
+    store.notify(t('settings.notifyModelNameRequired'), 'error')
     return
   }
   syncAutoApiType()
   if (remoteModelCatalog.value.length) {
     const profiles = selectedChannelModels.value.map((item) => modelProfileFromCatalogItem(item))
-    store.replaceModelsForEndpoint(draft.value.endpoint, profiles, `已同步 ${profiles.length} 个模型到模型管理`)
+    store.replaceModelsForEndpoint(draft.value.endpoint, profiles, t('settings.notifySyncedModels', { n: profiles.length }))
     closeModelEditor()
     return
   }
@@ -717,12 +726,12 @@ async function refreshChannelModelCatalog(): Promise<void> {
     draft.value.status = remoteModels.length ? 'connected' : 'failed'
     draft.value.lastCheckedAt = new Date().toISOString()
     modelCatalogNotice.value = remoteModels.length
-      ? `已从模型接口获取 ${remoteModels.length} 个模型，当前勾选 ${selectedChannelModelCount.value} 个${channelDefaultKindLabel()}`
-      : '接口未返回模型，请检查 BASE_URL、API Key 或手动填写模型 ID'
+      ? t('settings.notifyFetchedModels', { total: remoteModels.length, selected: selectedChannelModelCount.value, kind: channelDefaultKindLabel() })
+      : t('settings.notifyCatalogEmpty')
   } catch (error) {
     draft.value.status = 'failed'
     draft.value.lastCheckedAt = new Date().toISOString()
-    modelCatalogNotice.value = error instanceof Error ? error.message : '模型列表获取失败'
+    modelCatalogNotice.value = error instanceof Error ? error.message : t('settings.notifyCatalogFetchFailed')
   } finally {
     modelCatalogLoading.value = false
   }
@@ -740,7 +749,7 @@ function importPromptFiles(files: File[]): void {
   Promise.all(files.map(readPromptFile))
     .then((items) => store.importPromptBatch(items))
     .catch((error: unknown) => {
-      store.notify(error instanceof Error ? error.message : '导入 Prompts 失败', 'error')
+      store.notify(error instanceof Error ? error.message : t('settings.notifyImportPromptsFailed'), 'error')
     })
 }
 
@@ -748,7 +757,7 @@ function readPromptFile(file: File): Promise<{ content: string; filename: string
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve({ content: String(reader.result), filename: file.name })
-    reader.onerror = () => reject(new Error(`读取 ${file.name} 失败`))
+    reader.onerror = () => reject(new Error(t('settings.notifyReadFileFailed', { file: file.name })))
     reader.readAsText(file)
   })
 }
@@ -776,17 +785,17 @@ function exportPrompts(): void {
   link.download = 'samimage-v3-prompts.json'
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 10000)
-  store.notify('Prompts 已导出')
+  store.notify(t('settings.notifyPromptsExported'))
 }
 
 async function copyPrompt(item: PromptItem): Promise<void> {
   await navigator.clipboard?.writeText(item.prompt)
-  store.notify('提示词已复制')
+  store.notify(t('settings.notifyPromptCopied'))
 }
 
 function removePromptWithConfirmation(item: PromptItem): void {
   if (item.source === 'builtin') return
-  const confirmed = window.confirm(`确定删除提示词「${item.title}」？此操作不可恢复。`)
+  const confirmed = window.confirm(t('settings.confirmDeletePrompt', { title: item.title }))
   if (!confirmed) return
 
   store.removePrompt(item.id)
@@ -809,14 +818,14 @@ function toggleCoverPreset(id: string, event: Event): void {
 }
 
 function removeCoverPresetWithConfirmation(preset: { id: string; name: string }): void {
-  const confirmed = window.confirm(`确定删除封面预设「${preset.name}」？此操作会移除这个自定义尺寸。`)
+  const confirmed = window.confirm(t('settings.confirmDeleteCoverPreset', { name: preset.name }))
   if (!confirmed) return
 
   store.removeCoverPreset(preset.id)
 }
 
 function resetCoverPresetsWithConfirmation(): void {
-  const confirmed = window.confirm('确定恢复默认封面预设？此操作会移除所有自定义封面预设，并重置内置预设的启用状态。')
+  const confirmed = window.confirm(t('settings.confirmResetCovers'))
   if (!confirmed) return
 
   store.resetCoverPresets()
@@ -833,7 +842,7 @@ function openCoverPresetModal(): void {
 function addCoverPresetFromSettings(): void {
   const name = coverPresetName.value.trim()
   if (!name) {
-    store.notify('请输入预设名称', 'error')
+    store.notify(t('settings.confirmAddPresetName'), 'error')
     return
   }
 
@@ -849,7 +858,7 @@ function addCoverPresetFromSettings(): void {
 }
 
 async function resetDemoDataWithConfirmation(): Promise<void> {
-  const confirmed = window.confirm('确定恢复初始数据？此操作会清空当前模型、提示词、资产库和自定义封面预设。')
+  const confirmed = window.confirm(t('settings.confirmResetData'))
   if (!confirmed) return
 
   await store.resetDemoData()
@@ -861,10 +870,10 @@ function logoutAccount(): void {
 }
 
 function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatusTone } {
-  if (!model.endpoint.trim() || !model.apiKey.trim() || (model.apiProtocol === 'mgtv-storyboard' && !model.apiSecret?.trim()) || !model.model.trim()) return { label: '未配置', tone: 'warn' }
-  if (model.status === 'connected') return { label: '已连接', tone: 'ok' }
-  if (model.status === 'failed') return { label: '失败', tone: 'error' }
-  return { label: '待检测', tone: 'warn' }
+  if (!model.endpoint.trim() || !model.apiKey.trim() || (model.apiProtocol === 'mgtv-storyboard' && !model.apiSecret?.trim()) || !model.model.trim()) return { label: t('settings.status.unconfigured'), tone: 'warn' }
+  if (model.status === 'connected') return { label: t('settings.status.connected'), tone: 'ok' }
+  if (model.status === 'failed') return { label: t('settings.status.failed'), tone: 'error' }
+  return { label: t('settings.status.pending'), tone: 'warn' }
 }
 </script>
 
@@ -873,20 +882,23 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
     <div class="page-header">
       <div>
         <p class="page-kicker">Settings Center</p>
-        <h1 class="page-title">设置</h1>
-        <p class="page-desc">配置模型、管理提示词、调整生成参数与系统偏好。</p>
+        <h1 class="page-title">{{ t('settings.title') }}</h1>
+        <p class="page-desc">{{ t('settings.desc') }}</p>
       </div>
-      <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">
-        <Save :size="16" />
-        保存设置
-      </button>
+      <div class="page-header-actions">
+        <LocaleSwitcher />
+        <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">
+          <Save :size="16" />
+          {{ t('settings.saveSettings') }}
+        </button>
+      </div>
     </div>
 
     <div class="settings-tabs">
-      <button class="settings-tab" :class="{ active: activeTab === 'models' }" type="button" @click="activeTab = 'models'">模型配置</button>
-      <button class="settings-tab" :class="{ active: activeTab === 'prompts' }" type="button" @click="activeTab = 'prompts'">Prompts 市场</button>
-      <button class="settings-tab" :class="{ active: activeTab === 'generation' }" type="button" @click="activeTab = 'generation'">生成参数</button>
-      <button class="settings-tab" :class="{ active: activeTab === 'system' }" type="button" @click="activeTab = 'system'">系统设置</button>
+      <button class="settings-tab" :class="{ active: activeTab === 'models' }" type="button" @click="activeTab = 'models'">{{ t('settings.tabModels') }}</button>
+      <button class="settings-tab" :class="{ active: activeTab === 'prompts' }" type="button" @click="activeTab = 'prompts'">{{ t('settings.tabPrompts') }}</button>
+      <button class="settings-tab" :class="{ active: activeTab === 'generation' }" type="button" @click="activeTab = 'generation'">{{ t('settings.tabGeneration') }}</button>
+      <button class="settings-tab" :class="{ active: activeTab === 'system' }" type="button" @click="activeTab = 'system'">{{ t('settings.tabSystem') }}</button>
     </div>
 
     <section v-if="activeTab === 'models'" class="settings-section model-console-section">
@@ -894,20 +906,20 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         <div class="model-console-header">
           <div class="model-console-brand">
             <strong>gotbot</strong>
-            <span>模型管理、API 渠道和自动路由</span>
+            <span>{{ t('settings.modelConsoleDesc') }}</span>
           </div>
           <div class="model-console-summary">
             <span class="model-console-toggle">
               <i />
-              自动路由
+              {{ t('settings.autoRoute') }}
             </span>
-            <span class="model-console-stat">{{ managedModelCount }} 模型</span>
-            <span class="model-console-stat">{{ savedApiChannelEntries.length }} 渠道</span>
+            <span class="model-console-stat">{{ t('settings.managedModelCount', { n: managedModelCount }) }}</span>
+            <span class="model-console-stat">{{ t('settings.channelCount', { n: savedApiChannelEntries.length }) }}</span>
           </div>
           <div class="model-console-actions" aria-label="渠道操作">
-            <button class="console-add-button console-add-channel-button" type="button" @click="newModel('image')" aria-label="新增 API 渠道">
+            <button class="console-add-button console-add-channel-button" type="button" @click="newModel('image')" :aria-label="t('settings.addChannel')">
               <Plus :size="16" />
-              新增渠道
+              {{ t('settings.addChannel') }}
             </button>
           </div>
         </div>
@@ -915,8 +927,8 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         <div class="settings-section-block model-management-panel" data-testid="model-management-panel">
           <div class="model-management-head">
             <div class="settings-section-title">
-              模型管理
-              <span class="count">{{ managedModelCount }} 个模型 · {{ managedProfileCount }} 个上游路由</span>
+              {{ t('settings.modelManagement') }}
+              <span class="count">{{ t('settings.managementSummary', { n: managedModelCount, m: managedProfileCount }) }}</span>
             </div>
           </div>
 
@@ -924,10 +936,10 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
             <input
               v-model="modelManagerSearch"
               type="search"
-              placeholder="搜索模型名 / 类型 / 渠道"
-              aria-label="搜索模型"
+              :placeholder="t('settings.searchPlaceholder')"
+              :aria-label="t('settings.searchModelAria')"
             />
-            <div class="model-kind-tabs" aria-label="模型类型筛选">
+            <div class="model-kind-tabs" :aria-label="t('settings.kindFilterAria')">
               <button
                 v-for="tab in modelManagerKindTabs"
                 :key="tab.value"
@@ -953,39 +965,39 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                 <div class="model-row-title">
                   <strong>{{ group.model }}</strong>
                   <span class="model-provider-name">{{ modelKindLabel(group.kind) }}</span>
-                  <span v-if="group.profiles.length > 1" class="model-primary-badge">自动回退</span>
+                  <span v-if="group.profiles.length > 1" class="model-primary-badge">{{ t('settings.autoFallback') }}</span>
                   <span class="api-status-badge" :class="modelRouteGroupStatusClass(group)">{{ modelRouteGroupStatusLabel(group) }}</span>
                 </div>
                 <p>{{ modelRouteGroupMetaLine(group) }}</p>
               </div>
-              <div class="model-route-summary" aria-label="模型路由上游">
-                <strong>{{ group.profiles.length }} 上游</strong>
+              <div class="model-route-summary" :aria-label="t('settings.colUpstreams')">
+                <strong>{{ group.profiles.length }} {{ t('settings.upstreamUnit') }}</strong>
                 <span>{{ modelRouteGroupChannelSummary(group) }}</span>
               </div>
             </article>
             <div v-if="!filteredManagedModelGroups.length" class="empty-inline">
-              <strong>暂无匹配模型</strong>
-              <span>调整筛选条件，或点击新增渠道创建上游配置。</span>
+              <strong>{{ t('settings.emptyMatch') }}</strong>
+              <span>{{ t('settings.emptyMatchDesc') }}</span>
             </div>
           </div>
         </div>
 
         <div class="settings-section-block api-route-panel" data-testid="api-route-groups">
           <div class="settings-section-title">
-            API 渠道
-            <span class="count">{{ savedApiChannelEntries.length }} 个上游 · {{ managedProfileCount }} 个路由模型 · {{ autoRouteGroupCount }} 个自动回退组</span>
+            {{ t('settings.apiChannels') }}
+            <span class="count">{{ t('settings.apiChannelsSummary', { n: savedApiChannelEntries.length, m: managedProfileCount, k: autoRouteGroupCount }) }}</span>
           </div>
           <div v-if="savedApiChannelEntries.length" class="api-switch-table-wrap">
             <table class="api-switch-table" data-testid="api-channel-table">
               <thead>
                 <tr>
-                  <th>渠道名称</th>
-                  <th>API 类型</th>
-                  <th>Base URL</th>
-                  <th>状态</th>
-                  <th>响应</th>
-                  <th>模型数</th>
-                  <th>操作</th>
+                  <th>{{ t('settings.colChannelName') }}</th>
+                  <th>{{ t('settings.colApiType') }}</th>
+                  <th>{{ t('settings.colBaseUrl') }}</th>
+                  <th>{{ t('settings.colStatus') }}</th>
+                  <th>{{ t('settings.colResponse') }}</th>
+                  <th>{{ t('settings.colModelCount') }}</th>
+                  <th>{{ t('settings.colActions') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1013,9 +1025,9 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                         :disabled="activeApiChannelEntry?.key === entry.key"
                         @click="selectApiChannel(entry)"
                       >
-                        {{ activeApiChannelEntry?.key === entry.key ? '当前' : '选用' }}
+                        {{ activeApiChannelEntry?.key === entry.key ? t('settings.current') : t('settings.choose') }}
                       </button>
-                      <button class="btn-soft btn-sm" type="button" @click="editModel(entry.profile)">编辑</button>
+                      <button class="btn-soft btn-sm" type="button" @click="editModel(entry.profile)">{{ t('settings.edit') }}</button>
                       <button
                         class="btn-soft btn-sm model-test-button"
                         :class="{ loading: isModelTesting(entry.profile.id) }"
@@ -1024,9 +1036,9 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                         :aria-busy="isModelTesting(entry.profile.id)"
                         @click="testModelConnection(entry.profile.id)"
                       >
-                        {{ isModelTesting(entry.profile.id) ? '检测中' : '检测' }}
+                        {{ isModelTesting(entry.profile.id) ? t('settings.testing') : t('settings.test') }}
                       </button>
-                      <button class="btn-danger btn-sm" type="button" @click="removeApiChannelWithConfirmation(entry)">删除</button>
+                      <button class="btn-danger btn-sm" type="button" @click="removeApiChannelWithConfirmation(entry)">{{ t('settings.delete') }}</button>
                     </div>
                   </td>
                 </tr>
@@ -1034,8 +1046,8 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
             </table>
           </div>
           <div v-else class="empty-inline">
-            <strong>暂无 API 渠道</strong>
-            <span>保存图像、视频、文本或语音模型后，会在这里按上游 Base URL 聚合显示渠道。</span>
+            <strong>{{ t('settings.emptyChannels') }}</strong>
+            <span>{{ t('settings.emptyChannelsDesc') }}</span>
           </div>
         </div>
       </div>
@@ -1043,11 +1055,11 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
 
     <section v-else-if="activeTab === 'prompts'" class="settings-section">
       <div class="section-head">
-        <h2>Prompts 市场</h2>
+        <h2>{{ t('settings.promptsMarket') }}</h2>
         <div class="btn-row">
           <button class="btn-soft btn-sm" type="button" @click="exportPrompts">
             <Download :size="14" />
-            导出 JSON
+            {{ t('settings.exportJson') }}
           </button>
         </div>
       </div>
@@ -1059,20 +1071,20 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         @drop="handlePromptDrop"
       >
         <Upload :size="22" />
-        <span class="big">拖拽文件或点击导入</span>
-        <span>支持多个 JSON 文件，自动去重并合并到 Prompts 市场。</span>
+        <span class="big">{{ t('settings.importDrag') }}</span>
+        <span>{{ t('settings.importDragDesc') }}</span>
         <input type="file" accept="application/json,.json" multiple hidden @change="importFile" />
       </label>
       <div class="prompt-summary">
-        <div class="stat-card"><strong>{{ store.prompts.length }}</strong><span>提示词总数</span></div>
-        <div class="stat-card"><strong>{{ promptSources.length }}</strong><span>来源</span></div>
-        <div class="stat-card"><strong>{{ filteredPrompts.length }}</strong><span>当前命中</span></div>
+        <div class="stat-card"><strong>{{ store.prompts.length }}</strong><span>{{ t('settings.promptTotal') }}</span></div>
+        <div class="stat-card"><strong>{{ promptSources.length }}</strong><span>{{ t('settings.promptSources') }}</span></div>
+        <div class="stat-card"><strong>{{ filteredPrompts.length }}</strong><span>{{ t('settings.promptHits') }}</span></div>
       </div>
       <div class="sync-panel card">
         <div class="card-body stack">
           <div>
-            <h3>从开源仓库同步</h3>
-            <p class="muted">支持同步 glidea、EvoLinkAI、freestylefly 三个开源仓库；同步失败时会保留本地已有提示词，不会清空用户数据。</p>
+            <h3>{{ t('settings.syncRepoTitle') }}</h3>
+            <p class="muted">{{ t('settings.syncRepoDesc') }}</p>
           </div>
           <div class="sync-grid">
             <article v-for="source in store.promptSyncSources" :key="source.key" class="sync-card">
@@ -1080,37 +1092,37 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                 <strong>{{ source.label }}</strong>
                 <p class="muted">{{ source.repo }}</p>
               </div>
-              <span class="chip">{{ store.promptSync[source.key]?.count ? `${store.promptSync[source.key]?.count} 条` : '未同步' }}</span>
-              <button class="btn-primary btn-sm" type="button" @click="store.syncPromptSource(source.key)">同步-{{ source.label }}</button>
+              <span class="chip">{{ store.promptSync[source.key]?.count ? t('settings.syncCount', { n: store.promptSync[source.key]?.count }) : t('settings.syncNotSynced') }}</span>
+              <button class="btn-primary btn-sm" type="button" @click="store.syncPromptSource(source.key)">{{ t('settings.syncWith') }}-{{ source.label }}</button>
             </article>
           </div>
-          <p class="muted">感谢 glidea、EvoLinkAI、freestylefly 社区维护和分享这些可复用提示词资源。</p>
+          <p class="muted">{{ t('settings.thanksNote') }}</p>
         </div>
       </div>
       <div class="prompt-filters">
         <div class="field prompt-search-field">
-          <label for="prompt-market-search">搜索提示词</label>
-          <input id="prompt-market-search" v-model="promptSearch" placeholder="搜索标题、正文、分类或来源" />
+          <label for="prompt-market-search">{{ t('settings.searchPromptLabel') }}</label>
+          <input id="prompt-market-search" v-model="promptSearch" :placeholder="t('settings.searchPromptPlaceholder')" />
         </div>
         <div class="field">
-          <label for="prompt-origin-filter">提示词类型</label>
+          <label for="prompt-origin-filter">{{ t('settings.promptTypeLabel') }}</label>
           <select id="prompt-origin-filter" v-model="promptOriginFilter">
-            <option value="all">全部提示词</option>
-            <option value="imported">仅导入/同步</option>
-            <option value="builtin">仅内置</option>
+            <option value="all">{{ t('settings.originAll') }}</option>
+            <option value="imported">{{ t('settings.originImported') }}</option>
+            <option value="builtin">{{ t('settings.originBuiltin') }}</option>
           </select>
         </div>
         <div class="field">
-          <label for="prompt-source-filter">来源筛选</label>
+          <label for="prompt-source-filter">{{ t('settings.sourceFilterLabel') }}</label>
           <select id="prompt-source-filter" v-model="promptSourceFilter">
-            <option value="all">全部来源</option>
+            <option value="all">{{ t('settings.sourceAll') }}</option>
             <option v-for="source in promptSources" :key="source" :value="source">{{ source }}</option>
           </select>
         </div>
         <div class="field">
-          <label for="prompt-category-filter">分类筛选</label>
+          <label for="prompt-category-filter">{{ t('settings.categoryFilterLabel') }}</label>
           <select id="prompt-category-filter" v-model="promptCategoryFilter">
-            <option value="all">全部分类</option>
+            <option value="all">{{ t('settings.categoryAll') }}</option>
             <option v-for="category in promptCategories" :key="category" :value="category">{{ promptCategoryLabel(category) }}</option>
           </select>
         </div>
@@ -1130,13 +1142,13 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
               <div v-if="item.author" class="prompt-author">by {{ item.author }}</div>
             </div>
             <div class="prompt-actions">
-              <button class="btn-primary btn-sm" type="button" @click="usePromptInWorkspace(item)">使用</button>
-              <button class="btn-soft btn-sm" type="button" @click="copyPrompt(item)">复制</button>
-              <button v-if="item.source !== 'builtin'" class="btn-danger btn-sm" type="button" @click="removePromptWithConfirmation(item)">删除</button>
-              <span v-else class="builtin-note">内置</span>
+              <button class="btn-primary btn-sm" type="button" @click="usePromptInWorkspace(item)">{{ t('settings.use') }}</button>
+              <button class="btn-soft btn-sm" type="button" @click="copyPrompt(item)">{{ t('settings.copy') }}</button>
+              <button v-if="item.source !== 'builtin'" class="btn-danger btn-sm" type="button" @click="removePromptWithConfirmation(item)">{{ t('settings.delete') }}</button>
+              <span v-else class="builtin-note">{{ t('settings.builtin') }}</span>
             </div>
           </article>
-          <EmptyState v-if="!filteredPrompts.length" :icon="FileText" title="暂无 Prompts" description="请从上方拖拽或点击导入文件" />
+          <EmptyState v-if="!filteredPrompts.length" :icon="FileText" :title="t('settings.emptyPromptsTitle')" :description="t('settings.emptyPromptsDesc')" />
         </div>
       </div>
     </section>
@@ -1144,14 +1156,14 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
     <section v-else-if="activeTab === 'generation'" class="settings-section">
       <div class="card">
         <div class="card-body stack">
-          <h2>生成参数</h2>
+          <h2>{{ t('settings.generationParams') }}</h2>
           <div class="grid grid-2">
             <div class="field">
-              <label for="default-generation-size">默认尺寸</label>
+              <label for="default-generation-size">{{ t('settings.defaultSize') }}</label>
               <input id="default-generation-size" v-model.number="store.settings.defaultGenerationSize" type="number" min="128" max="4096" step="64" />
             </div>
             <div class="field">
-              <label for="default-batch-size">默认数量</label>
+              <label for="default-batch-size">{{ t('settings.defaultCount') }}</label>
               <select id="default-batch-size" v-model.number="store.settings.defaultBatchSize">
                 <option :value="1">1</option>
                 <option :value="2">2</option>
@@ -1160,21 +1172,21 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
               </select>
             </div>
             <div class="field">
-              <label for="default-style">默认风格预设</label>
+              <label for="default-style">{{ t('settings.defaultStyle') }}</label>
               <select id="default-style" v-model="store.settings.defaultStyle">
                 <option v-for="item in stylePresets" :key="item" :value="item">{{ item }}</option>
               </select>
             </div>
             <div class="field">
-              <label for="default-img-model">默认生图模型</label>
+              <label for="default-img-model">{{ t('settings.defaultImgModel') }}</label>
               <select id="default-img-model" v-model="store.settings.defaultImageModelId">
                 <option v-for="model in store.imageModels" :key="model.id" :value="model.id">{{ model.name }} / {{ model.model }}</option>
               </select>
             </div>
           </div>
-          <label class="toggle-line"><input v-model="store.settings.autoSaveHistory" type="checkbox" /> 自动保存到资产库</label>
-          <label class="toggle-line"><input v-model="store.settings.includePromptMetadata" type="checkbox" /> 导出时包含提示词元数据</label>
-          <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">保存生成参数</button>
+          <label class="toggle-line"><input v-model="store.settings.autoSaveHistory" type="checkbox" /> {{ t('settings.autoSaveHistory') }}</label>
+          <label class="toggle-line"><input v-model="store.settings.includePromptMetadata" type="checkbox" /> {{ t('settings.includeMeta') }}</label>
+          <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">{{ t('settings.saveGenParams') }}</button>
         </div>
       </div>
     </section>
@@ -1182,17 +1194,17 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
     <section v-else class="settings-section">
       <div class="card">
         <div class="card-body stack">
-          <h2>系统设置</h2>
+          <h2>{{ t('settings.systemSettings') }}</h2>
           <div class="field">
-            <label for="default-export-format">默认导出格式</label>
+            <label for="default-export-format">{{ t('settings.defaultExportFormat') }}</label>
             <select id="default-export-format" v-model="store.settings.defaultExportFormat">
               <option v-for="option in exportFormatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </div>
           <div class="btn-row">
-            <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">保存系统设置</button>
-            <button class="btn-soft" type="button" @click="logoutAccount">退出账号登录</button>
-            <button class="btn-danger" type="button" @click="resetDemoDataWithConfirmation">恢复初始数据</button>
+            <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">{{ t('settings.saveSystem') }}</button>
+            <button class="btn-soft" type="button" @click="logoutAccount">{{ t('settings.logout') }}</button>
+            <button class="btn-danger" type="button" @click="resetDemoDataWithConfirmation">{{ t('settings.resetData') }}</button>
           </div>
         </div>
       </div>
@@ -1201,16 +1213,16 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         <div class="card-body stack">
           <div class="section-head">
             <div>
-              <h2>自媒体封面预设</h2>
-              <p class="muted">{{ enabledCoverPresetCount }} 个启用</p>
+              <h2>{{ t('settings.coverPresets') }}</h2>
+              <p class="muted">{{ t('settings.coverEnabledCount', { n: enabledCoverPresetCount }) }}</p>
             </div>
             <button class="btn-soft btn-sm" type="button" @click="resetCoverPresetsWithConfirmation">
               <RotateCcw :size="14" />
-              恢复默认封面预设
+              {{ t('settings.resetCoverPresets') }}
             </button>
             <button class="btn-primary btn-sm" type="button" @click="openCoverPresetModal">
               <Plus :size="14" />
-              新增预设
+              {{ t('settings.addPreset') }}
             </button>
           </div>
           <div class="cover-settings-list">
@@ -1218,7 +1230,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
               <div>
                 <div class="inline">
                   <strong>{{ preset.name }}</strong>
-                  <span v-if="preset.custom" class="chip accent">自定义</span>
+                  <span v-if="preset.custom" class="chip accent">{{ t('settings.custom') }}</span>
                 </div>
                 <p class="muted">{{ preset.width }} x {{ preset.height }}</p>
               </div>
@@ -1226,21 +1238,21 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                 <input
                   :checked="preset.enabled"
                   type="checkbox"
-                  :aria-label="`启用 ${preset.name}`"
+                  :aria-label="`${t('settings.enable')} ${preset.name}`"
                   @change="toggleCoverPreset(preset.id, $event)"
                 />
-                启用
+                {{ t('settings.enable') }}
               </label>
               <button
                 v-if="preset.custom"
                 class="btn-icon"
                 type="button"
-                :aria-label="`删除 ${preset.name}`"
+                :aria-label="`${t('settings.delete')} ${preset.name}`"
                 @click="removeCoverPresetWithConfirmation(preset)"
               >
                 <Trash2 :size="14" />
               </button>
-              <span v-else class="builtin-note">内置</span>
+              <span v-else class="builtin-note">{{ t('settings.builtin') }}</span>
             </article>
           </div>
         </div>
@@ -1252,25 +1264,25 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
         <div class="modal-head api-channel-modal-head">
           <div>
             <h2>{{ modelEditorTitle }}</h2>
-            <p class="muted">选择渠道预设后自动检测 API 类型、路径和模型能力。</p>
+            <p class="muted">{{ t('settings.modalChannelDesc') }}</p>
           </div>
           <button class="btn-icon" type="button" @click="closeModelEditor">×</button>
         </div>
 
         <div class="modal-body api-channel-modal-body">
           <div class="field">
-            <label for="model-draft-name-unified">渠道名称</label>
+            <label for="model-draft-name-unified">{{ t('settings.channelName') }}</label>
             <select id="model-draft-name-unified" v-model="channelPresetId" @change="applyChannelPreset(channelPresetId)">
               <option v-for="preset in channelPresets" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
             </select>
           </div>
           <div class="auto-api-type-card">
-            <span>API 类型</span>
-            <strong>自动检测</strong>
+            <span>{{ t('settings.apiType') }}</span>
+            <strong>{{ t('settings.autoDetect') }}</strong>
             <small>{{ autoApiTypeSummary }}</small>
           </div>
           <div class="field">
-            <label for="model-draft-endpoint-unified">Base URL</label>
+            <label for="model-draft-endpoint-unified">{{ t('settings.baseUrl') }}</label>
             <select id="model-draft-base-url-preset" v-model="channelBaseUrlPresetId" @change="applyBaseUrlPreset(channelBaseUrlPresetId)">
               <option v-for="preset in channelBaseUrlPresets" :key="preset.id" :value="preset.id">{{ preset.label }}{{ preset.endpoint ? ` · ${preset.endpoint}` : '' }}</option>
             </select>
@@ -1280,7 +1292,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
             </div>
           </div>
           <div class="field">
-            <label for="model-draft-api-key-unified">API Key</label>
+            <label for="model-draft-api-key-unified">{{ t('settings.apiKey') }}</label>
             <div class="channel-api-key-row">
               <input
                 id="model-draft-api-key-unified"
@@ -1288,45 +1300,45 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                 :type="apiKeyVisible ? 'text' : 'password'"
                 :placeholder="draft.apiProtocol === 'mgtv-storyboard' ? 'Access Key' : 'sk-...'"
               />
-              <button class="btn-soft btn-sm" type="button" @click="apiKeyVisible = !apiKeyVisible">{{ apiKeyVisible ? '隐藏' : '显示' }}</button>
+              <button class="btn-soft btn-sm" type="button" @click="apiKeyVisible = !apiKeyVisible">{{ apiKeyVisible ? t('settings.hide') : t('settings.show') }}</button>
             </div>
           </div>
           <div v-if="draft.apiProtocol === 'mgtv-storyboard'" class="field">
-            <label for="model-draft-api-secret-unified">Secret Key</label>
-            <input id="model-draft-api-secret-unified" v-model="draft.apiSecret" type="password" placeholder="Secret Key" />
+            <label for="model-draft-api-secret-unified">{{ t('settings.secretKey') }}</label>
+            <input id="model-draft-api-secret-unified" v-model="draft.apiSecret" type="password" :placeholder="t('settings.secretKey')" />
           </div>
 
           <div class="field">
-            <label for="model-draft-note-unified">备注</label>
-            <textarea id="model-draft-note-unified" v-model="channelRemark" rows="3" placeholder="可填写渠道额度、用途或备用说明" />
+            <label for="model-draft-note-unified">{{ t('settings.remark') }}</label>
+            <textarea id="model-draft-note-unified" v-model="channelRemark" rows="3" :placeholder="t('settings.remarkPlaceholder')" />
           </div>
 
           <div class="field">
-            <label for="model-draft-kind-unified">默认模型类型</label>
+            <label for="model-draft-kind-unified">{{ t('settings.defaultModelType') }}</label>
             <select id="model-draft-kind-unified" v-model="channelDefaultModelKind" @change="applyDefaultModelKind(channelDefaultModelKind)">
-              <option value="all">全部模型</option>
-              <option value="image">图像</option>
-              <option value="video">视频</option>
-              <option value="text">文本</option>
-              <option value="tts">语音</option>
+              <option value="all">{{ t('settings.allModels') }}</option>
+              <option value="image">{{ t('settings.kind.image') }}</option>
+              <option value="video">{{ t('settings.kind.video') }}</option>
+              <option value="text">{{ t('settings.kind.text') }}</option>
+              <option value="tts">{{ t('settings.kind.tts') }}</option>
             </select>
           </div>
 
           <button class="channel-fetch-button" type="button" :disabled="modelCatalogLoading" @click="refreshChannelModelCatalog">
-            {{ modelCatalogLoading ? '正在获取模型列表…' : '获取模型列表' }}
+            {{ modelCatalogLoading ? t('settings.fetchingModels') : t('settings.fetchModels') }}
           </button>
           <p v-if="modelCatalogNotice" class="muted channel-fetch-notice">{{ modelCatalogNotice }}</p>
 
           <div class="channel-model-panel">
             <div class="channel-model-window-tabs">
-              <button type="button" :class="{ active: modelBenchmarkWindow === '3m' }" @click="modelBenchmarkWindow = '3m'">3个月</button>
-              <button type="button" :class="{ active: modelBenchmarkWindow === '6m' }" @click="modelBenchmarkWindow = '6m'">6个月</button>
-              <button type="button" :class="{ active: modelBenchmarkWindow === '12m' }" @click="modelBenchmarkWindow = '12m'">12个月</button>
+              <button type="button" :class="{ active: modelBenchmarkWindow === '3m' }" @click="modelBenchmarkWindow = '3m'">{{ t('settings.benchmark3m') }}</button>
+              <button type="button" :class="{ active: modelBenchmarkWindow === '6m' }" @click="modelBenchmarkWindow = '6m'">{{ t('settings.benchmark6m') }}</button>
+              <button type="button" :class="{ active: modelBenchmarkWindow === '12m' }" @click="modelBenchmarkWindow = '12m'">{{ t('settings.benchmark12m') }}</button>
             </div>
             <div class="channel-model-search-row">
-              <input v-model="modelCatalogSearch" placeholder="搜索/创建模型" />
-              <button class="btn-soft btn-sm" type="button" @click="selectAllChannelModels">全选</button>
-              <button class="btn-soft btn-sm" type="button" @click="clearChannelModelSelection">清除</button>
+              <input v-model="modelCatalogSearch" :placeholder="t('settings.searchOrCreateModel')" />
+              <button class="btn-soft btn-sm" type="button" @click="selectAllChannelModels">{{ t('settings.selectAll') }}</button>
+              <button class="btn-soft btn-sm" type="button" @click="clearChannelModelSelection">{{ t('settings.clear') }}</button>
             </div>
             <div class="channel-model-list">
               <template v-if="modelCatalogLoading">
@@ -1347,8 +1359,8 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                   <em>{{ catalogApiTypeLabel(item) }}</em>
                 </label>
                 <div v-if="!channelModelOptions.length" class="empty-inline channel-model-empty">
-                  <strong>暂无模型</strong>
-                  <span>填写模型 ID，或点击“获取模型列表”。</span>
+                  <strong>{{ t('settings.emptyModels') }}</strong>
+                  <span>{{ t('settings.emptyModelsDesc') }}</span>
                 </div>
               </template>
             </div>
@@ -1360,15 +1372,15 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
                 :disabled="!store.models.some((model) => model.id === draft.id) || isModelTesting(draft.id)"
                 @click="testModelConnection(draft.id)"
               >
-                模型测速（{{ channelModelOptions.length }}）
+                {{ t('settings.modelSpeedTest', { n: channelModelOptions.length }) }}
               </button>
             </div>
           </div>
         </div>
 
         <div class="modal-foot api-channel-modal-foot">
-          <button class="btn-soft" type="button" @click="closeModelEditor">取消</button>
-          <button class="btn-primary" type="button" @click="saveDraft">保存</button>
+          <button class="btn-soft" type="button" @click="closeModelEditor">{{ t('common.cancel') }}</button>
+          <button class="btn-primary" type="button" @click="saveDraft">{{ t('common.save') }}</button>
         </div>
       </div>
     </div>
@@ -1377,34 +1389,34 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
       <div class="modal small">
         <div class="modal-head">
           <div>
-            <h2>新增封面预设</h2>
-            <p class="muted">添加常用尺寸后，可在工具库和工作台直接使用。</p>
+            <h2>{{ t('settings.addCoverPresetTitle') }}</h2>
+            <p class="muted">{{ t('settings.addCoverPresetDesc') }}</p>
           </div>
           <button class="btn-icon" type="button" @click="coverPresetModalOpen = false">×</button>
         </div>
         <div class="modal-body stack">
           <div class="field">
-            <label for="settings-cover-preset-name">名称</label>
-            <input id="settings-cover-preset-name" v-model="coverPresetName" placeholder="例如：竖版课程封面" />
+            <label for="settings-cover-preset-name">{{ t('settings.presetName') }}</label>
+            <input id="settings-cover-preset-name" v-model="coverPresetName" :placeholder="t('settings.presetNamePlaceholder')" />
           </div>
           <div class="grid grid-2">
             <div class="field">
-              <label for="settings-cover-preset-width">宽度</label>
+              <label for="settings-cover-preset-width">{{ t('settings.width') }}</label>
               <input id="settings-cover-preset-width" v-model.number="coverPresetWidth" type="number" min="128" max="4096" />
             </div>
             <div class="field">
-              <label for="settings-cover-preset-height">高度</label>
+              <label for="settings-cover-preset-height">{{ t('settings.height') }}</label>
               <input id="settings-cover-preset-height" v-model.number="coverPresetHeight" type="number" min="128" max="4096" />
             </div>
           </div>
           <label class="toggle-line">
-            <input v-model="coverPresetEnabled" type="checkbox" aria-label="启用新预设" />
-            启用
+            <input v-model="coverPresetEnabled" type="checkbox" :aria-label="t('settings.enable')" />
+            {{ t('settings.enable') }}
           </label>
         </div>
         <div class="modal-foot">
-          <button class="btn-soft" type="button" @click="coverPresetModalOpen = false">取消</button>
-          <button class="btn-primary" type="button" @click="addCoverPresetFromSettings">添加预设</button>
+          <button class="btn-soft" type="button" @click="coverPresetModalOpen = false">{{ t('common.cancel') }}</button>
+          <button class="btn-primary" type="button" @click="addCoverPresetFromSettings">{{ t('settings.addPresetConfirm') }}</button>
         </div>
       </div>
     </div>
@@ -1417,6 +1429,12 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
   gap: 4px;
   border-bottom: 1px solid var(--border-soft);
   margin-bottom: 26px;
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .settings-tab {

@@ -3,11 +3,12 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const aboutPagePath = resolve('src/pages/AboutPage.vue')
+const zhCnLocalePath = resolve('src/i18n/locales/zh-CN.ts')
+
+const source = readFileSync(aboutPagePath, 'utf8') + '\n' + readFileSync(zhCnLocalePath, 'utf8')
 
 describe('AboutPage brand information', () => {
   it('shows private mobile brand information without public contact links', () => {
-    const source = readFileSync(aboutPagePath, 'utf8')
-
     expect(source).toContain('道听徒说')
     expect(source).toContain('about-logo">L')
     expect(source).toContain('AI 图像视频创作')

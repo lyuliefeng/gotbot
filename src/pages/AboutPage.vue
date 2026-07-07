@@ -2,95 +2,91 @@
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { CircleHelp, Keyboard, LockKeyhole, Rocket, UserRound } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const tab = ref<'about' | 'help' | 'faq' | 'shortcuts'>('about')
 const openFaq = ref(0)
 
-const faqs = [
-  ['道听徒说需要联网吗？', '浏览、配置和资产管理默认在本地完成。只有在调用你配置的模型 API 生成图像或视频时才需要网络连接。'],
-  ['支持哪些模型？', '支持 OpenAI 兼容协议的图像模型、Agnes 图像/视频模型、GPT Image 2，以及用于 AI 润色的文本模型。可以配置多个模型并设置主模型。'],
-  ['提示词如何导入？', '在设置的 Prompts 市场中同步 glidea/banana-prompt-quicker、EvoLinkAI/awesome-gpt-image-2-API-and-Prompts、freestylefly/awesome-gpt-image-2 等开源仓库，或导入自定义 JSON。支持数组、{prompts:[]}、{items:[]} 等常见结构，并按 source+sourceId 或 content hash 去重。感谢这些开源项目提供的提示词整理与分享。'],
-  ['如何添加自定义封面预设？', '在工具库的封面预设区域点击「自定义」，或在设置的系统设置里点击「新增预设」，输入名称、宽度、高度后即可在列表中看到并使用。自定义预设保存在本地，支持随时删除。'],
-  ['图片保存在哪里？', '浏览器预览会保存到下载目录；桌面版会使用设置里的默认输出目录。资产库可查看所有生成结果、提示词和参数，并支持重新导出。'],
-  ['数据安全吗？', '道听徒说不收集任何用户数据。API Key 保存在本地，配置、提示词和资产库记录不会上传到任何服务器。只有主动生成时才会向你配置的模型 API 发送请求。'],
-]
+const faqs = t('about.faqs') as unknown as [string, string][]
+const steps = t('about.steps') as unknown as string[]
 
 const workspaceShortcuts = [
-  { action: '生成图像', keys: 'Ctrl + Enter' },
-  { action: '清空提示词', keys: 'Ctrl + D' },
-  { action: 'AI 润色', keys: 'Ctrl + Shift + R' },
-  { action: '复制结果图', keys: 'Ctrl + Shift + C' },
-  { action: '打开提示词库', keys: 'Ctrl + L' },
-  { action: '上传参考图', keys: 'Ctrl + U' },
-  { action: '导出结果', keys: 'Ctrl + Shift + E' },
+  { key: 'generate', keys: 'Ctrl + Enter' },
+  { key: 'clearPrompt', keys: 'Ctrl + D' },
+  { key: 'polish', keys: 'Ctrl + Shift + R' },
+  { key: 'copyResult', keys: 'Ctrl + Shift + C' },
+  { key: 'openPromptLib', keys: 'Ctrl + L' },
+  { key: 'uploadRef', keys: 'Ctrl + U' },
+  { key: 'exportResult', keys: 'Ctrl + Shift + E' },
 ]
 
 const navigationShortcuts = [
-  { action: '首页', keys: 'Ctrl + 1' },
-  { action: '工作台', keys: 'Ctrl + 2' },
-  { action: '工具库', keys: 'Ctrl + 3' },
-  { action: '资产库', keys: 'Ctrl + 4' },
-  { action: '操作记录', keys: 'Ctrl + 5' },
-  { action: '设置', keys: 'Ctrl + 6' },
-  { action: '关于帮助', keys: 'Ctrl + 7' },
+  { key: 'navHome', keys: 'Ctrl + 1' },
+  { key: 'navWorkspace', keys: 'Ctrl + 2' },
+  { key: 'navTools', keys: 'Ctrl + 3' },
+  { key: 'navHistory', keys: 'Ctrl + 4' },
+  { key: 'navOperations', keys: 'Ctrl + 5' },
+  { key: 'navSettings', keys: 'Ctrl + 6' },
+  { key: 'navAbout', keys: 'Ctrl + 7' },
 ]
-
 </script>
 
 <template>
   <div class="page">
     <section class="about-hero">
       <div class="about-logo">L</div>
-      <h1>道听<span>徒说</span></h1>
-      <p class="version">AI 图像视频创作 · 移动端优先</p>
-      <p class="tagline">面向微信小程序和手机应用的私人创作工作台。配置、提示词和资产库记录默认保存在本机。</p>
+      <h1>{{ t('about.heroTitle1') }}<span>{{ t('about.heroTitle2') }}</span></h1>
+      <p class="version">{{ t('about.version') }}</p>
+      <p class="tagline">{{ t('about.tagline') }}</p>
       <div class="btn-row hero-actions">
         <RouterLink class="btn-primary" to="/workspace">
           <Rocket :size="16" />
-          进入工作台
+          {{ t('about.enterWorkspace') }}
         </RouterLink>
-        <RouterLink class="btn-soft" to="/settings">模型设置</RouterLink>
+        <RouterLink class="btn-soft" to="/settings">{{ t('about.modelSettings') }}</RouterLink>
       </div>
     </section>
 
     <div class="about-tabs">
-      <button class="about-tab" :class="{ active: tab === 'about' }" type="button" @click="tab = 'about'">关于</button>
-      <button class="about-tab" :class="{ active: tab === 'help' }" type="button" @click="tab = 'help'">快速上手</button>
-      <button class="about-tab" :class="{ active: tab === 'faq' }" type="button" @click="tab = 'faq'">常见问题</button>
-      <button class="about-tab" :class="{ active: tab === 'shortcuts' }" type="button" @click="tab = 'shortcuts'">快捷键</button>
+      <button class="about-tab" :class="{ active: tab === 'about' }" type="button" @click="tab = 'about'">{{ t('about.tabAbout') }}</button>
+      <button class="about-tab" :class="{ active: tab === 'help' }" type="button" @click="tab = 'help'">{{ t('about.tabHelp') }}</button>
+      <button class="about-tab" :class="{ active: tab === 'faq' }" type="button" @click="tab = 'faq'">{{ t('about.tabFaq') }}</button>
+      <button class="about-tab" :class="{ active: tab === 'shortcuts' }" type="button" @click="tab = 'shortcuts'">{{ t('about.tabShortcuts') }}</button>
     </div>
 
     <section v-if="tab === 'about'" class="about-panel">
       <article class="info-card">
-        <h2><UserRound :size="17" /> 产品信息</h2>
-        <div class="info-row"><span>应用名称</span><strong>道听徒说</strong></div>
-        <div class="info-row"><span>版本</span><strong>3.0.0</strong></div>
-        <div class="info-row"><span>运行模式</span><strong>本地单机 · 离线优先</strong></div>
-        <div class="info-row"><span>数据存储</span><strong>Electron userData + 本地文件系统</strong></div>
+        <h2><UserRound :size="17" /> {{ t('about.productInfo') }}</h2>
+        <div class="info-row"><span>{{ t('about.appName') }}</span><strong>{{ t('about.appName') }}</strong></div>
+        <div class="info-row"><span>{{ t('about.versionLabel') }}</span><strong>{{ t('about.versionValue') }}</strong></div>
+        <div class="info-row"><span>{{ t('about.runMode') }}</span><strong>{{ t('about.runModeValue') }}</strong></div>
+        <div class="info-row"><span>{{ t('about.dataStorage') }}</span><strong>{{ t('about.dataStorageValue') }}</strong></div>
       </article>
       <article class="author-card">
         <div class="author-head">
           <div>
-            <h2><UserRound :size="17" /> 应用信息</h2>
-            <p>为移动端 AI 图像与视频创作准备的私有化工作台，适配后续微信小程序和手机应用发布。</p>
+            <h2><UserRound :size="17" /> {{ t('about.appInfo') }}</h2>
+            <p>{{ t('about.appInfoDesc') }}</p>
           </div>
         </div>
-        <div class="info-row"><span>定位</span><strong>AI 图像视频创作</strong></div>
-        <div class="info-row"><span>平台规划</span><strong>微信小程序 + 手机应用</strong></div>
-        <div class="info-row"><span>联系入口</span><strong>暂不展示</strong></div>
+        <div class="info-row"><span>{{ t('about.positioning') }}</span><strong>{{ t('about.positioningValue') }}</strong></div>
+        <div class="info-row"><span>{{ t('about.platformPlan') }}</span><strong>{{ t('about.platformPlanValue') }}</strong></div>
+        <div class="info-row"><span>{{ t('about.contact') }}</span><strong>{{ t('about.contactValue') }}</strong></div>
       </article>
       <article class="privacy-note">
         <LockKeyhole :size="18" />
-        <span><strong>隐私承诺</strong>：道听徒说不上传配置、提示词和资产库记录。API Key 保存在本地，只有主动生成时才向配置的模型 API 发送请求。</span>
+        <span><strong>{{ t('about.privacyCommit') }}</strong>：{{ t('about.privacyText') }}</span>
       </article>
     </section>
 
     <section v-else-if="tab === 'help'" class="about-panel step-list">
-      <article v-for="(item, index) in ['配置模型', '选择生成模式', '输入提示词', '调整参数并生成', '导出结果']" :key="item" class="step-item">
+      <article v-for="(item, index) in steps" :key="item" class="step-item">
         <span class="step-num">{{ index + 1 }}</span>
         <div>
           <h3>{{ item }}</h3>
-          <p>按照工作台和设置页的引导完成这一环节，所有参数都会进入资产库，方便复用。</p>
+          <p>{{ t('about.stepDesc') }}</p>
         </div>
       </article>
     </section>
@@ -107,19 +103,19 @@ const navigationShortcuts = [
 
     <section v-else class="about-panel shortcut-panel">
       <article class="shortcut-section">
-        <h2>工作台快捷键</h2>
+        <h2>{{ t('about.workspaceShortcutsTitle') }}</h2>
         <div class="shortcut-grid">
           <div v-for="item in workspaceShortcuts" :key="item.keys" class="shortcut-row">
-            <span><Keyboard :size="15" /> {{ item.action }}</span>
+            <span><Keyboard :size="15" /> {{ t('about.shortcuts.' + item.key) }}</span>
             <kbd>{{ item.keys }}</kbd>
           </div>
         </div>
       </article>
       <article class="shortcut-section">
-        <h2>页面导航</h2>
+        <h2>{{ t('about.navShortcutsTitle') }}</h2>
         <div class="shortcut-grid">
           <div v-for="item in navigationShortcuts" :key="item.keys" class="shortcut-row">
-            <span><Keyboard :size="15" /> {{ item.action }}</span>
+            <span><Keyboard :size="15" /> {{ t('about.shortcuts.' + item.key) }}</span>
             <kbd>{{ item.keys }}</kbd>
           </div>
         </div>

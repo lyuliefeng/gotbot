@@ -4,11 +4,13 @@ import { useRoute } from 'vue-router'
 import AppShell from '@/components/AppShell.vue'
 import { useAppStore } from '@/stores/app'
 import { useTheme } from '@/composables/useTheme'
+import { useLocale } from '@/composables/useLocale'
 
 const store = useAppStore()
 const route = useRoute()
 const useShell = computed(() => route.meta.shell !== false)
 useTheme()
+useLocale()
 
 onMounted(() => {
   void store.loadPersistedTasks()
