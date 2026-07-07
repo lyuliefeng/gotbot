@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Download, Eye, FolderOpen, RotateCcw, Search, Star, Trash2, ZoomIn } from 'lucide-vue-next'
+import { Download, Eye, FolderOpen, Image, RotateCcw, Search, Star, Trash2, ZoomIn } from 'lucide-vue-next'
 import { getAvailableIcoExportSizes, getExportFormatOptions, defaultIconProjectName, iconExportFormatOptions, iconSizePresets, modeLabels } from '@/data/catalog'
 import type { IconExportKind } from '@/data/catalog'
 import { useAppStore } from '@/stores/app'
 import { pickDirectory } from '@/services/desktop'
+import EmptyState from '@/components/EmptyState.vue'
 import type { ExportFormat, GeneratedAsset, GenerationMode, GenerationTask } from '@/types/domain'
 
 type ExportSource = 'original' | 'adjusted'
@@ -447,10 +448,12 @@ async function confirmHistoryExport(): Promise<void> {
         <button class="btn-soft" type="button" @click="loadMore">加载更多</button>
       </div>
     </div>
-    <div v-else class="empty-state card">
-      <strong>暂无资产</strong>
-      <span>在工作台生成结果后会自动进入资产库。</span>
-    </div>
+    <EmptyState
+      v-else
+      :icon="Image"
+      title="暂无资产"
+      description="在工作台生成结果后会自动进入资产库。"
+    />
 
     <div v-if="selected" class="modal-overlay" @click.self="selected = null">
       <div class="modal">
@@ -883,14 +886,6 @@ async function confirmHistoryExport(): Promise<void> {
   padding: 2px 9px;
   font-family: var(--font-mono);
   font-size: 11px;
-}
-
-.empty-state {
-  display: grid;
-  place-items: center;
-  gap: 6px;
-  padding: 42px;
-  color: var(--muted);
 }
 
 .detail-grid {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Download, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-vue-next'
+import { Download, FileText, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-vue-next'
+import EmptyState from '@/components/EmptyState.vue'
 import { exportFormatOptions, stylePresets } from '@/data/catalog'
 import { useAppStore, type ModelRouteGroup } from '@/stores/app'
 import type { ModelCatalogItem, ModelProfile, PromptItem } from '@/types/domain'
@@ -1135,10 +1136,7 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
               <span v-else class="builtin-note">内置</span>
             </div>
           </article>
-          <div v-if="!filteredPrompts.length" class="empty-state">
-            <strong>暂无 Prompts</strong>
-            <span>请从上方拖拽或点击导入文件</span>
-          </div>
+          <EmptyState v-if="!filteredPrompts.length" :icon="FileText" title="暂无 Prompts" description="请从上方拖拽或点击导入文件" />
         </div>
       </div>
     </section>
@@ -1331,20 +1329,28 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
               <button class="btn-soft btn-sm" type="button" @click="clearChannelModelSelection">清除</button>
             </div>
             <div class="channel-model-list">
-              <label v-for="item in channelModelOptions" :key="`${item.source}:${item.model}`" class="channel-model-option">
-                <input
-                  type="checkbox"
-                  :value="item.model"
-                  :checked="selectedCatalogModelIds.has(item.model)"
-                  @change="toggleChannelModel(item, $event)"
-                />
-                <span>{{ item.model }}</span>
-                <em>{{ catalogApiTypeLabel(item) }}</em>
-              </label>
-              <div v-if="!channelModelOptions.length" class="empty-inline channel-model-empty">
-                <strong>暂无模型</strong>
-                <span>填写模型 ID，或点击“获取模型列表”。</span>
-              </div>
+              <template v-if="modelCatalogLoading">
+                <div v-for="n in 4" :key="n" class="channel-model-skeleton">
+                  <span class="skeleton skeleton-check" />
+                  <span class="skeleton skeleton-line channel-model-skeleton-line" />
+                </div>
+              </template>
+              <template v-else>
+                <label v-for="item in channelModelOptions" :key="`${item.source}:${item.model}`" class="channel-model-option">
+                  <input
+                    type="checkbox"
+                    :value="item.model"
+                    :checked="selectedCatalogModelIds.has(item.model)"
+                    @change="toggleChannelModel(item, $event)"
+                  />
+                  <span>{{ item.model }}</span>
+                  <em>{{ catalogApiTypeLabel(item) }}</em>
+                </label>
+                <div v-if="!channelModelOptions.length" class="empty-inline channel-model-empty">
+                  <strong>暂无模型</strong>
+                  <span>填写模型 ID，或点击“获取模型列表”。</span>
+                </div>
+              </template>
             </div>
             <div class="channel-model-footer">
               <span>{{ selectedChannelModelCount }} / {{ channelModelOptions.length }}</span>
@@ -1913,6 +1919,25 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
   border-radius: 0;
 }
 
+.channel-model-skeleton {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.skeleton-check {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+}
+
+.channel-model-skeleton-line {
+  width: 60%;
+}
+
 .channel-model-footer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2440,23 +2465,6 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
 
 .prompt-list-panel {
   overflow: hidden;
-}
-
-.empty-state {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  min-height: 140px;
-  padding: 24px;
-  color: var(--muted);
-  text-align: center;
-  background: var(--tint);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-}
-
-.empty-state strong {
-  color: var(--fg);
 }
 
 .prompt-card {

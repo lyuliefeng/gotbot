@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { RotateCcw, Search, Trash2 } from 'lucide-vue-next'
+import { History, RotateCcw, Search, Trash2 } from 'lucide-vue-next'
 import { modeLabels } from '@/data/catalog'
 import { useAppStore } from '@/stores/app'
+import EmptyState from '@/components/EmptyState.vue'
 import type { GenerationMode, GenerationTask, TaskStatus } from '@/types/domain'
 
 const router = useRouter()
@@ -209,10 +210,12 @@ function clearHistory(): void {
       </div>
     </div>
 
-    <div v-else class="operation-empty empty-state card">
-      <strong>暂无操作记录</strong>
-      <span>生成成功或失败后都会在这里记录，方便后续排查。</span>
-    </div>
+    <EmptyState
+      v-else
+      :icon="History"
+      title="暂无操作记录"
+      description="生成成功或失败后都会在这里记录，方便后续排查。"
+    />
   </div>
 </template>
 
@@ -318,6 +321,8 @@ function clearHistory(): void {
 }
 
 .operation-item {
+  position: relative;
+  overflow: hidden;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
   gap: 16px;
@@ -327,6 +332,28 @@ function clearHistory(): void {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  transition: transform var(--dur-base), border-color var(--dur-base), box-shadow var(--dur-base);
+}
+
+.operation-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-3));
+  opacity: 0;
+  transition: opacity var(--dur-base);
+}
+
+.operation-item:hover {
+  border-color: var(--accent);
+  box-shadow: var(--card-hover-shadow);
+}
+
+.operation-item:hover::before {
+  opacity: 1;
 }
 
 .operation-main {
@@ -450,22 +477,6 @@ function clearHistory(): void {
   display: flex;
   justify-content: flex-end;
   min-width: 0;
-}
-
-.operation-empty {
-  min-height: 132px;
-  padding: 28px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 7px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.operation-empty strong {
-  color: var(--fg);
-  font-size: 15px;
 }
 
 .status-pill.error {

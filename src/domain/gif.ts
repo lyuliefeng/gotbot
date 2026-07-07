@@ -74,8 +74,8 @@ interface GifFileInput {
 function writeGifFile(input: GifFileInput): Uint8Array {
   const { width, height, palette, loops, frames } = input
   const paletteCount = palette.length
-  // 调色板颜色数必须是 2 的幂（GIF 规范）
-  const palettePow2 = nextPow2(paletteCount)
+  // 调色板颜色数必须是 2 的幂（GIF 规范），且 GIF 全局色表至少 2 个条目
+  const palettePow2 = Math.max(2, nextPow2(paletteCount))
 
   const writer = new ByteWriter()
   // Header
@@ -115,7 +115,7 @@ function writeGifFile(input: GifFileInput): Uint8Array {
     writer.writeByte(0xf9)
     writer.writeByte(0x04)
     // packed: reserved(3) | disposal(3) | user input(1) | transparent(1)
-    writer.writeByte(0x04) // disposal = restore to background, no transparent
+    writer.writeByte(0x04) // disposal method = 1 (leave in place), no transparent color
     writer.writeUint16(frame.delayCs)
     writer.writeByte(0) // transparent color index
     writer.writeByte(0)

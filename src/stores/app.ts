@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { isBlockedPromptCategory, mergePromptItems, normalizePromptImport, normalizePromptSync } from '@/domain/promptImport'
 import { containsChineseText } from '@/domain/language'
 import {
@@ -44,8 +44,34 @@ import { createId } from '@/domain/ids'
 
 const STORAGE_KEY = 'samimage.v3.state'
 const AUTH_STORAGE_KEY = 'gotbot.auth.v1'
-const DEFAULT_ACCOUNT_ID = 'account-admin'
 const fallbackGifDataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh+QQAFAAAACwAAAAAAQABAAACAkQBACH5BAAUAAAALAAAAAABAAEAAAICTAEAOw=='
+
+// 把素材解析为可用于导出/渲染的 data URL：优先使用 asset.dataUrl，
+// 缺失时回退到从 asset.remoteUrl 拉取真实字节（修复远程素材 dataUrl 为空导致导出为空文件的问题）。
+async function resolveExportSource(asset: GeneratedAsset): Promise<string> {
+  if (asset.dataUrl && asset.dataUrl.startsWith('data:')) return asset.dataUrl
+  if (asset.remoteUrl) {
+    try {
+      const response = await fetch(asset.remoteUrl)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const blob = await response.blob()
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(reader.error ?? new Error('读取远程素材失败'))
+        reader.readAsDataURL(blob)
+      })
+      return dataUrl
+    } catch (error) {
+      throw new Error(
+        `无法获取远程素材用于导出: ${asset.remoteUrl}（${error instanceof Error ? error.message : String(error)}）`,
+        { cause: error },
+      )
+    }
+  }
+  if (asset.dataUrl) return asset.dataUrl
+  throw new Error('该素材缺少可用于导出的图像数据')
+}
 const builtinDefaultModelIds = new Set([
   'text-polish',
   'agnes-image',
@@ -170,20 +196,6 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
-function createDefaultAccount(): UserAccount {
-  const now = new Date().toISOString()
-  return {
-    id: DEFAULT_ACCOUNT_ID,
-    username: 'admin',
-    displayName: '管理员',
-    role: 'admin',
-    isActive: true,
-    avatarColor: accountAvatarColors[0],
-    createdAt: now,
-    lastActiveAt: now,
-  }
-}
-
 function normalizeAccount(value: unknown, index: number): UserAccount | null {
   if (!isRecord(value)) return null
   const username = typeof value.username === 'string' ? value.username.trim() : ''
@@ -214,7 +226,8 @@ function normalizeAuthState(value: unknown): AuthState {
     .map((account, index) => normalizeAccount(account, index))
     .filter((account): account is UserAccount => Boolean(account))
 
-  if (!accounts.length) accounts = [createDefaultAccount()]
+  // 不再预置默认账号：全新安装时账号列表为空，用户必须自行注册第一个账号。
+  // 注册逻辑（createAccount）会在账号列表为空时把首个账号自动设为管理员。
   if (!accounts.some((account) => account.role === 'admin')) {
     accounts = accounts.map((account, index) => index === 0 ? { ...account, role: 'admin' } : account)
   }
@@ -227,17 +240,20 @@ function normalizeAuthState(value: unknown): AuthState {
   const currentAccount = accounts.find((account) => account.id === requestedCurrentId && account.isActive)
     ?? accounts.find((account) => account.isActive)
     ?? accounts[0]
+  // 全新安装时账号列表可能为空（移除了默认账号），此时没有可定位的当前账号，避免空引用崩溃。
+  const currentAccountId = currentAccount ? currentAccount.id : ''
 
   const rawSecrets = isRecord(value) && isRecord(value.accountSecrets) ? value.accountSecrets : {}
   const accountSecrets = accounts.reduce<Record<string, string>>((result, account) => {
     const storedSecret = rawSecrets[account.id]
-    result[account.id] = typeof storedSecret === 'string' && storedSecret ? storedSecret : (account.username === 'admin' ? 'admin123' : 'gotbot123')
+    // 仅信任用户显式保存的密钥；不再为账号提供默认密码兜底。
+    result[account.id] = typeof storedSecret === 'string' && storedSecret ? storedSecret : ''
     return result
   }, {})
 
   return {
     accounts,
-    currentAccountId: currentAccount.id,
+    currentAccountId,
     isAuthenticated,
     accountSecrets,
   }
@@ -710,10 +726,10 @@ function createFailedGenerationTask(input: GenerationInput, error: unknown, mode
 
 export const useAppStore = defineStore('app', () => {
   const initialAuth = normalizeAuthState(browserStorage.read<AuthState>(AUTH_STORAGE_KEY, {
-    accounts: [createDefaultAccount()],
-    currentAccountId: DEFAULT_ACCOUNT_ID,
+    accounts: [],
+    currentAccountId: '',
     isAuthenticated: false,
-    accountSecrets: { [DEFAULT_ACCOUNT_ID]: 'admin123' },
+    accountSecrets: {},
   }))
   const legacyInitialState = browserStorage.read<PersistedState>(STORAGE_KEY, cloneDefault())
   const initial = compactBrowserState(browserStorage.read<PersistedState>(accountStateKey(initialAuth.currentAccountId), legacyInitialState))
@@ -731,6 +747,14 @@ export const useAppStore = defineStore('app', () => {
   const coverPresets = ref<CoverPreset[]>(initial.coverPresets.length ? initial.coverPresets : cloneDefaultCoverPresets())
   const promptSync = ref<PromptSyncState>(initial.promptSync ?? {})
   const settings = ref<AppSettings>(initialSettings)
+  // M5 修复：设置项（含 defaultOutputDir 等）常通过 v-model 直接绑定到 settings，
+  // 若不显式调用 saveSettings 就会被刷新丢弃。这里深度监听并在变更后防抖持久化，
+  // 保证所有直接编辑的设置都能落盘。
+  let settingsPersistTimer: ReturnType<typeof setTimeout> | undefined
+  watch(settings, () => {
+    if (settingsPersistTimer) clearTimeout(settingsPersistTimer)
+    settingsPersistTimer = setTimeout(() => persist(), 400)
+  }, { deep: true })
   const accounts = ref<UserAccount[]>(initialAuth.accounts)
   const currentAccountId = ref(initialAuth.currentAccountId)
   const isAuthenticated = ref(initialAuth.isAuthenticated)
@@ -912,7 +936,7 @@ export const useAppStore = defineStore('app', () => {
       username,
       email: email || undefined,
       displayName,
-      role: input.role ?? 'user',
+      role: input.role ?? (accounts.value.length === 0 ? 'admin' : 'user'),
       isActive: input.isActive ?? true,
       avatarColor: accountAvatarColors[accounts.value.length % accountAvatarColors.length],
       createdAt: now,
@@ -1706,13 +1730,24 @@ export const useAppStore = defineStore('app', () => {
       return
     }
     const exportScale = format === 'ico' ? 1 : scale
-    const exportData = await prepareExportAsset(asset, format, exportScale, options)
+    let exportData: ExportAssetData
+    try {
+      exportData = await prepareExportAsset(asset, format, exportScale, options)
+    } catch (error) {
+      if (asset.remoteUrl) {
+        triggerBrowserDownload(asset.remoteUrl, `${asset.title}.${format}`)
+        notify('已打开素材链接，可在浏览器中保存（本机无法直接解码远程素材）')
+        return
+      }
+      throw error
+    }
     const baseTitle = options?.customTitle?.trim() || asset.title
     const exportTitle = `${baseTitle}${options?.titleSuffix ?? ''}`
     const metadataJson = settings.value.includePromptMetadata && task ? createExportMetadataJson(task, asset, exportData, exportScale) : undefined
     const result = await invokeOptional<{ path: string; metadataPath?: string }>('export_generated_asset', {
       request: {
         dataUrl: exportData.dataUrl,
+        remoteUrl: asset.remoteUrl,
         outputDir: settings.value.defaultOutputDir,
         title: exportTitle,
         format: exportData.format,
@@ -1730,6 +1765,11 @@ export const useAppStore = defineStore('app', () => {
       return
     }
 
+    if (!exportData.dataUrl && asset.remoteUrl) {
+      triggerBrowserDownload(asset.remoteUrl, `${exportTitle}.${exportData.format}`)
+      notify('已打开素材链接，可在浏览器中保存')
+      return
+    }
     triggerBrowserDownload(exportData.dataUrl, `${exportTitle}.${exportData.format}`)
     if (metadataJson) {
       const metadataUrl = URL.createObjectURL(new Blob([metadataJson], { type: 'application/json' }))
@@ -1750,7 +1790,7 @@ export const useAppStore = defineStore('app', () => {
     }
 
     const baseName = (projectName ?? '').trim() || asset.title || 'icon'
-    const image = await loadImageFromDataUrl(asset.dataUrl)
+    const image = await loadImageFromDataUrl(await resolveExportSource(asset))
     const entries: Array<{ name: string; dataUrl: string }> = []
 
     for (const size of selectedSizes.sort((a, b) => a - b)) {
@@ -1807,17 +1847,18 @@ export const useAppStore = defineStore('app', () => {
     options?: { iconSizes?: number[]; canvasFilter?: string; titleSuffix?: string },
   ): Promise<ExportAssetData> {
     const hasFilter = Boolean(options?.canvasFilter && options.canvasFilter !== 'none')
+    const sourceDataUrl = await resolveExportSource(asset)
     if (format === 'gif') {
-      const dataUrl = asset.dataUrl.startsWith('data:image/gif') ? asset.dataUrl : fallbackGifDataUrl
+      const dataUrl = sourceDataUrl.startsWith('data:image/gif') ? sourceDataUrl : fallbackGifDataUrl
       return { dataUrl, format: 'gif', width: asset.width, height: asset.height }
     }
-    if (format === 'mp4') return { dataUrl: asset.remoteUrl ?? asset.dataUrl, format: 'mp4', width: asset.width, height: asset.height }
-    if (!hasFilter && format === asset.format && scale === 1) return { dataUrl: asset.dataUrl, format, width: asset.width, height: asset.height }
-    if (format === 'ico') return createIcoDataUrl(asset.dataUrl, asset.width, asset.height, options?.iconSizes)
-    if (format === 'svg') return { dataUrl: asset.dataUrl, format: asset.format, width: asset.width, height: asset.height }
+    if (format === 'mp4') return { dataUrl: sourceDataUrl, format: 'mp4', width: asset.width, height: asset.height }
+    if (!hasFilter && format === asset.format && scale === 1) return { dataUrl: sourceDataUrl, format, width: asset.width, height: asset.height }
+    if (format === 'ico') return createIcoDataUrl(sourceDataUrl, asset.width, asset.height, options?.iconSizes)
+    if (format === 'svg') return { dataUrl: sourceDataUrl, format: asset.format, width: asset.width, height: asset.height }
     const width = asset.width * scale
     const height = asset.height * scale
-    return { dataUrl: await rasterizeDataUrl(asset.dataUrl, width, height, format, options?.canvasFilter), format, width, height }
+    return { dataUrl: await rasterizeDataUrl(sourceDataUrl, width, height, format, options?.canvasFilter), format, width, height }
   }
 
   function createExportMetadataJson(task: GenerationTask, asset: GeneratedAsset, exportData: ExportAssetData, scale: number): string {

@@ -17,6 +17,20 @@
   --app-topbar-h: 54px;
   --font-body: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --shadow-1: 0 1px 2px color-mix(in srgb, var(--fg) 8%, transparent), 0 6px 16px color-mix(in srgb, var(--fg) 7%, transparent);
+  --shadow-2: 0 12px 34px color-mix(in srgb, var(--fg) 14%, transparent), 0 0 0 1px var(--border);
+  --shadow-3: 0 16px 44px color-mix(in srgb, var(--fg) 18%, transparent), 0 0 0 1px var(--border-glow);
+  --radius-control: 10px;
+  --dur-fast: 120ms;
+  --dur-base: 160ms;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
 }
 
 *,
@@ -102,7 +116,7 @@ svg {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(130, 154, 190, 0.24);
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
   border-radius: var(--radius-pill);
 }
 
@@ -142,14 +156,14 @@ svg {
 .brand-mark {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, rgba(87, 166, 255, 0.95), rgba(46, 232, 200, 0.78));
-  color: #04111f;
+  border-radius: var(--radius-control);
+  background: linear-gradient(135deg, var(--accent), var(--accent-3));
+  color: var(--accent-on);
   display: grid;
   place-items: center;
   font-weight: 900;
   font-size: 15px;
-  box-shadow: 0 12px 26px rgba(87, 166, 255, 0.24), inset 0 1px 0 rgba(255, 255, 255, .45);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--accent) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, .45);
   position: relative;
   overflow: hidden;
 }
@@ -214,12 +228,12 @@ svg {
   min-height: 36px;
   white-space: nowrap;
   padding: 7px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--fg-2);
   font-size: 13px;
   font-weight: 600;
   border: 1px solid transparent;
-  transition: background 160ms, border-color 160ms, color 160ms, transform 160ms, box-shadow 160ms;
+  transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base);
 }
 
 .nav-link:hover {
@@ -427,7 +441,7 @@ svg {
 .btn-danger,
 .btn-icon {
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -436,7 +450,7 @@ svg {
   font-weight: 650;
   min-height: 34px;
   padding: 7px 13px;
-  transition: background 120ms, border-color 120ms, color 120ms, box-shadow 120ms, transform 120ms;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast);
 }
 
 .btn-primary,
@@ -502,7 +516,7 @@ svg {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-1);
   backdrop-filter: blur(18px) saturate(135%);
 }
 
@@ -531,7 +545,7 @@ svg {
 
 .grid {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .grid-2 {
@@ -546,9 +560,52 @@ svg {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* ===== Skeleton loading ===== */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 10%, transparent), transparent);
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-line {
+  height: 12px;
+}
+
+.skeleton-block {
+  aspect-ratio: 4 / 3;
+}
+
+.skeleton-cover {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
 .stack {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .split {
@@ -585,10 +642,10 @@ select {
   width: 100%;
   background: var(--input-bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--fg);
   padding: 8px 11px;
-  transition: border-color 150ms, box-shadow 150ms, background 150ms;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast), background var(--dur-fast);
 }
 
 textarea {
@@ -660,7 +717,7 @@ input[type="range"] {
 .tool-card {
   padding: 15px;
   cursor: pointer;
-  transition: border-color 200ms, transform 200ms, box-shadow 200ms;
+  transition: border-color var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -741,10 +798,35 @@ input[type="range"] {
   background: var(--modal-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--elev-raised);
+  box-shadow: var(--shadow-2);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  animation: modal-in var(--dur-base) cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.modal-overlay {
+  animation: modal-overlay-in var(--dur-base) ease both;
+}
+
+@keyframes modal-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .modal-head,
@@ -777,8 +859,8 @@ input[type="range"] {
   z-index: 100;
   background: var(--toast-bg);
   border: 1px solid var(--border-glow);
-  border-radius: 10px;
-  box-shadow: var(--elev-raised);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-3);
   padding: 10px 14px;
   display: flex;
   align-items: center;
@@ -885,13 +967,28 @@ input[type="range"] {
 
 .toast-enter-active,
 .toast-leave-active {
-  transition: transform 160ms, opacity 160ms;
+  transition: transform var(--dur-base), opacity var(--dur-base);
 }
 
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
   transform: translateY(16px);
+}
+
+.page-enter-active,
+.page-leave-active {
+  transition: opacity var(--dur-base), transform var(--dur-base);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 
 .art-preview {

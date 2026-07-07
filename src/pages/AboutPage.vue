@@ -213,6 +213,16 @@ const navigationShortcuts = [
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 18px 20px;
+  transition: transform var(--dur-base), border-color var(--dur-base), box-shadow var(--dur-base);
+}
+
+.info-card:hover,
+.author-card:hover,
+.privacy-note:hover,
+.step-item:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: var(--card-hover-shadow);
 }
 
 .info-card h2 {

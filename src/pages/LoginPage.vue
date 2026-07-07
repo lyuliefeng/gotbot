@@ -7,23 +7,23 @@ import {
   EyeOff,
   Lock,
   Mail,
-  Moon,
   ShieldCheck,
-  Sparkles,
-  Sun,
   UserPlus,
   UserRound,
   WandSparkles,
   Zap,
 } from 'lucide-vue-next'
+import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import { useAppStore } from '@/stores/app'
 
 const store = useAppStore()
 const route = useRoute()
 const router = useRouter()
 
+const agreedToTerms = ref(false)
+
 const activeTab = ref<'local-login' | 'local-register' | 'email-login' | 'email-register'>('local-login')
-const localLoginUsername = ref(store.currentAccount?.username || 'admin')
+const localLoginUsername = ref(store.currentAccount?.username ?? '')
 const localLoginAccessKey = ref('')
 const localRegisterUsername = ref('')
 const localRegisterDisplayName = ref('')
@@ -141,14 +141,13 @@ function registerEmail(): void {
   if (!store.loginAccount(account.id, emailRegisterAccessKey.value)) return
   redirectAfterLogin()
 }
+
 </script>
 
 <template>
   <main class="login-page">
-    <div class="theme-switch-mini" aria-label="主题模式">
-      <button type="button"><Sun :size="14" /></button>
-      <button type="button"><Moon :size="14" /></button>
-      <button type="button"><Sparkles :size="14" /></button>
+    <div class="login-theme-switch">
+      <ThemeSwitcher />
     </div>
 
     <section class="login-showcase">
@@ -239,10 +238,7 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit">登录系统</button>
-
-          <div class="third-party-label">第三方登录</div>
-          <button class="oauth-button" type="button" disabled>使用 LinuxDO OAuth 登录</button>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">登录系统</button>
         </form>
 
         <form v-else-if="activeTab === 'local-register'" class="login-form" @submit.prevent="registerLocal">
@@ -292,7 +288,7 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit">创建本地账号</button>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">创建本地账号</button>
           <p class="form-note">创建后会自动登录，并为该账号生成独立工作区。</p>
         </form>
 
@@ -322,7 +318,7 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit">邮箱登录</button>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">邮箱登录</button>
           <p class="form-note">邮箱账号与本地账号共用本机安全存储，后续可接入服务器 Session。</p>
         </form>
 
@@ -378,21 +374,14 @@ function registerEmail(): void {
             </div>
           </label>
 
-          <button class="login-submit" type="submit">邮箱注册</button>
+          <button class="login-submit" type="submit" :disabled="!agreedToTerms">邮箱注册</button>
           <p class="form-note">验证码 10 分钟内有效；注册后可直接用邮箱登录，模型配置和资产会按账号隔离。</p>
         </form>
 
-        <div class="login-help">
-          <ShieldCheck :size="18" />
-          <div>
-            <strong>登录说明</strong>
-            <ul>
-              <li>本地登录默认账号：admin / admin123</li>
-              <li>本地注册和邮箱注册都会创建独立工作区。</li>
-              <li>邮箱登录使用本机保存的邮箱账号密钥。</li>
-            </ul>
-          </div>
-        </div>
+        <label class="oauth-agree">
+          <input v-model="agreedToTerms" type="checkbox" class="oauth-agree-check" />
+          <span>我已阅读并同意<a href="#" @click.prevent>《用户协议》</a>和<a href="#" @click.prevent>《隐私政策》</a></span>
+        </label>
       </div>
     </section>
 
@@ -410,8 +399,8 @@ function registerEmail(): void {
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(420px, 1fr);
-  background: #f8f5ef;
-  color: #1f2937;
+  background: var(--bg);
+  color: var(--fg);
   overflow: hidden;
 }
 
@@ -420,37 +409,18 @@ function registerEmail(): void {
   position: absolute;
   inset: 0 50% 0 0;
   background-image:
-    linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+    linear-gradient(var(--border-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-soft) 1px, transparent 1px);
   background-size: 32px 32px;
   mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.72) 72%, transparent 100%);
   pointer-events: none;
 }
 
-.theme-switch-mini {
+.login-theme-switch {
   position: absolute;
-  top: 28px;
-  right: 28px;
+  top: 22px;
+  right: 22px;
   z-index: 3;
-  display: inline-flex;
-  gap: 4px;
-  padding: 5px;
-  border: 1px solid rgba(203, 213, 225, 0.7);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-}
-
-.theme-switch-mini button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 24px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: #64748b;
 }
 
 .login-showcase,
@@ -471,7 +441,7 @@ function registerEmail(): void {
   align-items: center;
   gap: 12px;
   width: fit-content;
-  color: #334155;
+  color: var(--fg-2);
   font-size: 17px;
   font-weight: 950;
 }
@@ -483,8 +453,8 @@ function registerEmail(): void {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #6ee7b7, #60a5fa);
-  color: #0f172a;
+  background: linear-gradient(135deg, var(--accent), var(--accent-3));
+  color: var(--accent-on);
   font-weight: 950;
 }
 
@@ -494,14 +464,14 @@ function registerEmail(): void {
 
 .showcase-copy h1 {
   margin: 0;
-  color: #3f3f46;
+  color: var(--fg);
   font-size: clamp(42px, 6vw, 76px);
   line-height: 1.08;
   letter-spacing: -0.06em;
 }
 
 .showcase-copy h1 span {
-  background: linear-gradient(120deg, #0ea5e9, #8b5cf6, #ec4899);
+  background: linear-gradient(120deg, var(--accent), var(--accent-2), var(--accent-3));
   background-clip: text;
   color: transparent;
 }
@@ -509,7 +479,7 @@ function registerEmail(): void {
 .showcase-copy p {
   max-width: 760px;
   margin: 22px 0 0;
-  color: #7a7f89;
+  color: var(--muted);
   font-size: 15px;
   line-height: 2;
 }
@@ -526,25 +496,25 @@ function registerEmail(): void {
   grid-template-columns: 18px minmax(0, 1fr);
   gap: 7px 10px;
   padding: 18px;
-  border: 1px solid rgba(226, 232, 240, 0.78);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.035);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
 }
 
 .feature-grid article svg {
-  color: #5b8f96;
+  color: var(--accent);
 }
 
 .feature-grid strong {
-  color: #475569;
+  color: var(--fg);
   font-size: 13px;
   font-weight: 950;
 }
 
 .feature-grid span {
   grid-column: 2 / -1;
-  color: #8a909b;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
 }
@@ -557,10 +527,10 @@ function registerEmail(): void {
 
 .tech-tags span {
   padding: 3px 8px;
-  border: 1px solid rgba(125, 211, 252, 0.62);
+  border: 1px solid var(--border-glow);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.66);
-  color: #64748b;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 11px;
   font-weight: 850;
 }
@@ -569,7 +539,7 @@ function registerEmail(): void {
   position: absolute;
   left: clamp(42px, 7vw, 84px);
   bottom: 26px;
-  color: #b0b4bc;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 800;
 }
@@ -579,7 +549,7 @@ function registerEmail(): void {
   place-items: center;
   min-height: 100vh;
   padding: clamp(36px, 7vw, 92px);
-  background: rgba(248, 245, 239, 0.9);
+  background: var(--surface);
 }
 
 .login-card {
@@ -590,21 +560,21 @@ function registerEmail(): void {
 
 .login-title h2 {
   margin: 0;
-  color: #3f3f46;
+  color: var(--fg);
   font-size: 25px;
   letter-spacing: -0.04em;
 }
 
 .login-title p {
   margin: 6px 0 0;
-  color: #8b919d;
+  color: var(--muted);
   font-size: 13px;
 }
 
 .login-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  border-bottom: 1px solid rgba(203, 213, 225, 0.75);
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .login-tabs button {
@@ -612,14 +582,14 @@ function registerEmail(): void {
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: #8b919d;
+  color: var(--muted);
   font-weight: 900;
   cursor: pointer;
 }
 
 .login-tabs button.active {
-  border-color: #5b8f96;
-  color: #3f3f46;
+  border-color: var(--accent);
+  color: var(--fg);
 }
 
 .login-form {
@@ -630,14 +600,14 @@ function registerEmail(): void {
 .login-form label {
   display: grid;
   gap: 8px;
-  color: #5b616d;
+  color: var(--fg-2);
   font-size: 12px;
   font-weight: 950;
 }
 
 .login-form label > span::before {
   content: "* ";
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .input-shell {
@@ -647,9 +617,9 @@ function registerEmail(): void {
   gap: 8px;
   min-height: 46px;
   padding: 0 12px;
-  border: 1px solid rgba(203, 213, 225, 0.92);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--input-bg);
 }
 
 .input-shell input {
@@ -657,19 +627,19 @@ function registerEmail(): void {
   border: 0;
   outline: 0;
   background: transparent;
-  color: #334155;
+  color: var(--fg);
   font: inherit;
 }
 
 .input-shell svg {
-  color: #94a3b8;
+  color: var(--muted);
 }
 
 .icon-button {
   display: inline-flex;
   border: 0;
   background: transparent;
-  color: #94a3b8;
+  color: var(--muted);
   cursor: pointer;
 }
 
@@ -681,85 +651,89 @@ function registerEmail(): void {
 
 .code-button {
   min-height: 46px;
-  border: 1px solid rgba(95, 154, 162, 0.36);
-  border-radius: 10px;
-  background: rgba(95, 154, 162, 0.1);
-  color: #427780;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-weight: 950;
   cursor: pointer;
 }
 
-.login-submit,
-.oauth-button {
+.login-submit {
   min-height: 46px;
   border: 0;
-  border-radius: 10px;
-  background: #5f9aa2;
-  color: #fff;
+  border-radius: var(--radius-control);
+  background: linear-gradient(135deg, var(--accent), var(--accent-3));
+  color: var(--accent-on);
   font-weight: 950;
-  box-shadow: 0 12px 22px rgba(95, 154, 162, 0.2);
+  box-shadow: var(--btn-primary-shadow);
   cursor: pointer;
 }
 
-.third-party-label {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+.oauth-agree {
+  display: flex;
   align-items: center;
-  gap: 10px;
-  color: #8b919d;
+  gap: 8px;
+  margin: var(--space-3, 12px) 2px 0;
+  color: var(--muted);
   font-size: 12px;
-  font-weight: 850;
-  text-align: center;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
 }
 
-.third-party-label::before,
-.third-party-label::after {
+.oauth-agree a {
+  color: var(--accent);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.oauth-agree a:hover {
+  text-decoration: underline;
+}
+
+.oauth-agree-check {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+
+.oauth-agree-check::after {
   content: "";
-  height: 1px;
-  background: rgba(203, 213, 225, 0.72);
+  width: 9px;
+  height: 5px;
+  border: solid #fff;
+  border-width: 0 0 2px 2px;
+  transform: rotate(-45deg) scale(0);
+  transform-origin: center;
+  transition: transform var(--dur-fast);
+  margin-bottom: 2px;
 }
 
-.oauth-button {
-  background: #5f9aa2;
-  opacity: 0.72;
-  cursor: not-allowed;
+.oauth-agree-check:checked {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
-.login-help {
-  border: 1px solid rgba(147, 197, 253, 0.78);
-  border-radius: 12px;
-  background: rgba(239, 246, 255, 0.7);
+.oauth-agree-check:checked::after {
+  transform: rotate(-45deg) scale(1);
 }
 
 .form-note {
   margin: -4px 0 0;
-  color: #64748b;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
-}
-
-.login-help {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 10px;
-  padding: 14px;
-  color: #64748b;
-}
-
-.login-help svg {
-  color: #60a5fa;
-}
-
-.login-help strong {
-  color: #475569;
-  font-size: 13px;
-}
-
-.login-help ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
-  line-height: 1.8;
 }
 
 .login-footer {
@@ -769,7 +743,7 @@ function registerEmail(): void {
   display: inline-flex;
   align-items: center;
   gap: 14px;
-  color: #a1a6af;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 800;
 }

@@ -55,6 +55,37 @@ describe('GIF encoder basics', () => {
   it('refuses to encode an empty frame list', () => {
     expect(() => encodeGif([], { width: 2, height: 2 })).toThrow(/至少需要 1 帧/)
   })
+
+  it('writes a valid global color table for a single-color frame', () => {
+    // 回归：单色帧会产生 1 色调色板，旧实现 palettePow2=1 会让头部声明 256 个
+    // 色表项但实际只写 3 字节，生成无法解码的损坏 GIF。
+    const frame = solidFrame([120, 80, 200], 4, 4)
+    const bytes = encodeGif([frame], { width: 4, height: 4, paletteColors: 1, loops: 0 })
+    expect(isGifBytes(bytes)).toBe(true)
+
+    const packed = bytes[10]
+    expect(packed & 0x80).toBe(0x80) // 全局色表标志位存在
+    const gctSizeField = packed & 0x07
+    const declaredEntries = 1 << (gctSizeField + 1)
+    expect(declaredEntries).toBeGreaterThanOrEqual(2)
+    // 声明的色表长度必须在文件范围内，且紧跟其后的字节应为扩展或图像描述符
+    const gctEnd = 13 + declaredEntries * 3
+    expect(gctEnd).toBeLessThanOrEqual(bytes.length)
+    expect([0x21, 0x2c]).toContain(bytes[gctEnd])
+  })
+
+  it('keeps declared color-table length consistent for a two-color frame', () => {
+    const frames: GifFrame[] = [
+      solidFrame([255, 0, 0], 2, 2),
+      solidFrame([0, 255, 0], 2, 2),
+    ]
+    const bytes = encodeGif(frames, { width: 2, height: 2, paletteColors: 2, loops: 0 })
+    const packed = bytes[10]
+    const declaredEntries = 1 << ((packed & 0x07) + 1)
+    const gctEnd = 13 + declaredEntries * 3
+    expect(gctEnd).toBeLessThanOrEqual(bytes.length)
+    expect([0x21, 0x2c]).toContain(bytes[gctEnd])
+  })
 })
 
 describe('median cut palette', () => {

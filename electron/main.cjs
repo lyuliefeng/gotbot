@@ -62,23 +62,29 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   })
 
   if (isDev) {
-    void mainWindow.loadURL(devUrl)
+    mainWindow.loadURL(devUrl).catch((error) => dialog.showErrorBox('加载渲染进程失败', errorMessageText(error)))
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
-    void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+      .catch((error) => dialog.showErrorBox('加载渲染进程失败', errorMessageText(error)))
   }
 }
 
 app.whenReady().then(async () => {
-  store = new AppStore(path.join(app.getPath('userData'), 'state.json'))
-  await store.init()
-  registerIpc()
-  createWindow()
+  try {
+    store = new AppStore(path.join(app.getPath('userData'), 'state.json'))
+    await store.init()
+    registerIpc()
+    createWindow()
+  } catch (error) {
+    dialog.showErrorBox('启动失败', errorMessageText(error))
+    throw error
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -111,8 +117,11 @@ function registerIpc() {
 async function handleCommand(command, args) {
   switch (command) {
     case 'load_app_state':
-      return store.data.appState || null
+      return store.data.appState ?? null
     case 'save_app_state':
+      if (!args || typeof args !== 'object' || !('value' in args)) {
+        throw new Error('save_app_state 缺少 value 参数')
+      }
       store.data.appState = args.value
       await store.save()
       return null
@@ -154,11 +163,17 @@ class AppStore {
   async init() {
     await fs.mkdir(path.dirname(this.file), { recursive: true })
     try {
-      this.data = JSON.parse(await fs.readFile(this.file, 'utf8'))
-      if (!Array.isArray(this.data.tasks)) this.data.tasks = []
+      const parsed = JSON.parse(await fs.readFile(this.file, 'utf8'))
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        this.data = parsed
+        if (!Array.isArray(this.data.tasks)) this.data.tasks = []
+        return
+      }
     } catch {
-      await this.save()
+      // 解析失败或内容不是合法对象：落到下方的全新初始化
     }
+    this.data = { appState: null, tasks: [] }
+    await this.save()
   }
 
   async save() {
@@ -179,8 +194,12 @@ class AppStore {
 
   async deleteAsset(taskId, assetId) {
     this.data.tasks = this.data.tasks
-      .map((task) => task.id !== taskId ? task : { ...task, assets: task.assets.filter((asset) => asset.id !== assetId) })
-      .filter((task) => task.assets.length > 0)
+      .map((task) => {
+        if (task.id !== taskId) return task
+        const assets = Array.isArray(task.assets) ? task.assets : []
+        return { ...task, assets: assets.filter((asset) => asset.id !== assetId) }
+      })
+      .filter((task) => (Array.isArray(task.assets) ? task.assets.length : 0) > 0)
     await this.save()
   }
 }
@@ -430,7 +449,7 @@ async function polishPrompt(input, model) {
     : 'You are a prompt engineer for AI image and video generation. Rewrite the user prompt to be vivid and detailed. Enrich it with specific visual details about character appearance, scene environment, color palette, lighting, and sky/atmosphere. Return ONLY the rewritten prompt text. Do not include any explanation, commentary, labels, or meta-descriptions like "suitable for image generation" or "polished by X".'
   const user = `${input.task || 'polish'} | ${input.modeLabel} | ${input.style}\n${input.prompt}`
   const payload = await postJson(endpoint, model.apiKey, {
-    model: model.model,
+    model: model.model.trim(),
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
     temperature: 0.7,
   })
@@ -498,13 +517,31 @@ async function exportGeneratedAsset(request) {
   await fs.mkdir(request.outputDir, { recursive: true })
   const extension = sanitizeExtension(request.format || 'png')
   const filePath = path.join(request.outputDir, `${sanitizeFileName(request.title || 'asset')}.${extension}`)
-  await fs.writeFile(filePath, dataUrlToBuffer(request.dataUrl))
+  const buffer = await resolveExportBuffer(request)
+  await fs.writeFile(filePath, buffer)
   let metadataPath
   if (request.metadataJson) {
     metadataPath = path.join(request.outputDir, `${sanitizeFileName(request.title || 'asset')}.metadata.json`)
     await fs.writeFile(metadataPath, request.metadataJson)
   }
   return { path: filePath, metadataPath }
+}
+
+async function resolveExportBuffer(request) {
+  const dataUrl = request.dataUrl
+  if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+    return dataUrlToBuffer(dataUrl)
+  }
+  const remoteUrl = typeof request.remoteUrl === 'string' && request.remoteUrl.trim()
+    ? request.remoteUrl.trim()
+    : (typeof dataUrl === 'string' && /^https?:/i.test(dataUrl) ? dataUrl : '')
+  if (remoteUrl) {
+    const response = await fetchUpstream(remoteUrl, {}, `下载导出素材网络失败: GET ${remoteUrl}`)
+    if (!response.ok) throw new Error(`下载导出素材失败: HTTP ${response.status}`)
+    return Buffer.from(await response.arrayBuffer())
+  }
+  if (typeof dataUrl === 'string' && dataUrl.length) return Buffer.from(dataUrl, 'utf8')
+  throw new Error('导出素材缺少可用的图像数据（需要 dataUrl 或 remoteUrl）')
 }
 
 async function exportIconBundle(request) {
@@ -734,9 +771,9 @@ function buildZipStored(files) {
     const name = Buffer.from(file.name)
     const data = Buffer.from(file.data)
     const crc = crc32(data)
-    const local = Buffer.concat([u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), name, data])
+    const local = Buffer.concat([u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), name, data])
     chunks.push(local)
-    central.push(Buffer.concat([u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name]))
+    central.push(Buffer.concat([u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name]))
     offset += local.length
   }
   const centralBytes = Buffer.concat(central)

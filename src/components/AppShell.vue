@@ -109,7 +109,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <slot />
+      <Transition name="page" mode="out-in">
+        <slot />
+      </Transition>
     </main>
   </div>
 </template>

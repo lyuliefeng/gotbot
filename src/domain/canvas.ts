@@ -15,7 +15,7 @@ export const rasterExportMime: Record<'png' | 'jpg' | 'webp', string> = {
   webp: 'image/webp',
 }
 
-export const icoBundleSizes = [16, 32, 48, 64, 128, 256, 512] as const
+export const icoBundleSizes = [16, 32, 48, 64, 128, 256] as const
 
 /** 当前运行环境是否支持 Canvas 2D（happy-dom 等测试环境能力受限时返回 false） */
 export function isCanvasSupported(): boolean {
@@ -122,10 +122,15 @@ export async function createIcoDataUrl(
   requestedSizes?: number[],
 ): Promise<ExportAssetData> {
   const maxSize = Math.max(16, Math.min(width, height))
+  // ICO 目录的宽度/高度字段是单字节，0 仅表示 256，无法表达超过 256 的尺寸，
+  // 因此 ICO 内嵌帧上限为 256（512 仅作为 PNG 母图单独导出）。
+  const icoMaxSize = 256
   const candidateSizes = requestedSizes?.length
     ? Array.from(new Set(requestedSizes.map((size) => Math.round(size)).filter((size) => size >= 16)))
     : [...icoBundleSizes]
-  const bundleSizes = candidateSizes.filter((size) => size <= maxSize).sort((left, right) => left - right)
+  const bundleSizes = candidateSizes
+    .filter((size) => size <= maxSize && size <= icoMaxSize)
+    .sort((left, right) => left - right)
   const sizes = bundleSizes.length ? bundleSizes : [Math.max(16, maxSize)]
   const image = await loadImageFromDataUrl(dataUrl)
   const frames: Array<{ size: number; bytes: Uint8Array }> = []

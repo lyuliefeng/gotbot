@@ -9,10 +9,13 @@ export function hashString(input: string): string {
 const seenPrompts = new Map<string, string>()
 
 export function stableId(prefix: string, value: string): string {
-  const existing = seenPrompts.get(value)
+  // 缓存键必须包含 prefix：相同 value 在不同 prefix 下应生成不同 id，
+  // 否则先以 'prompt' 注册、再以 'builtin-docs' 查询会得到串号 id。
+  const cacheKey = `${prefix}::${value}`
+  const existing = seenPrompts.get(cacheKey)
   if (existing) return existing
   const id = `${prefix}-${hashString(value)}`
-  seenPrompts.set(value, id)
+  seenPrompts.set(cacheKey, id)
   return id
 }
 

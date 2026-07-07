@@ -27,6 +27,7 @@ import { synthesizeGifDataUrl } from '@/domain/gif'
 import { applyPostProcessPipeline } from '@/domain/postprocess'
 import { resolveToolEffects, type ModeState } from '@/domain/tools'
 import { resolveToolIcon } from '@/domain/icons'
+import EmptyState from '@/components/EmptyState.vue'
 import type { ThreeDStylePreset, ToolEntry } from '@/data/catalog'
 import type { ExportFormat, GeneratedAsset, GenerationMode, GenerationTask, PromptItem } from '@/types/domain'
 
@@ -1664,7 +1665,7 @@ async function chooseWorkspaceExportDir(): Promise<void> {
                   <button class="btn-soft btn-sm" type="button" :disabled="promptCurrentPage >= promptTotalPages" @click="nextPromptPage">下一页</button>
                 </div>
               </div>
-              <p v-else class="empty-prompt-library">没有匹配的提示词</p>
+              <EmptyState v-else compact title="没有匹配的提示词" />
             </main>
           </div>
         </div>
@@ -2745,16 +2746,6 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   color: var(--danger);
 }
 
-.shimmer {
-  width: min(540px, 70vw);
-  height: 300px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: linear-gradient(110deg, var(--surface-2), var(--surface), var(--surface-2));
-  background-size: 200% 100%;
-  animation: shimmer 1.2s infinite;
-}
-
 .media-preview-shape {
   width: min(540px, 70vw);
   height: 300px;
@@ -2972,12 +2963,6 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   transform: rotateX(90deg) translateZ(58px);
 }
 
-@keyframes shimmer {
-  to {
-    background-position-x: -200%;
-  }
-}
-
 @keyframes gifFramePop {
   0%, 100% {
     transform: translateY(16px) scale(0.92);
@@ -3111,14 +3096,6 @@ async function chooseWorkspaceExportDir(): Promise<void> {
 
 .prompt-pagination .btn-row {
   flex: 0 0 auto;
-}
-
-.empty-prompt-library {
-  padding: 28px 12px;
-  color: var(--muted);
-  text-align: center;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
 }
 
 .library-grid {
@@ -3431,8 +3408,7 @@ async function chooseWorkspaceExportDir(): Promise<void> {
     padding: 14px;
   }
 
-  .mode-preview,
-  .shimmer {
+  .mode-preview {
     width: 100%;
     height: 220px;
   }

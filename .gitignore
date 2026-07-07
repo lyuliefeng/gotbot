@@ -59,6 +59,9 @@ Thumbs.db
 *.db
 *.db-journal
 
+# Playwright 鉴权状态（E2E 自动生成）
+tests/e2e/.auth/
+
 gitfork/
 .learnings/
 .ui-search/

@@ -196,7 +196,7 @@ export function normalizePromptImport(content: string, filename: string): Prompt
 
       const tags = asStringArray(item.tags)
       const images = asStringArray(item.images).concat(asStringArray(item.reference_image_urls))
-      const rawCategory = asString(item.category) || asString(item.sub_category) || tags[0] || ''
+      const rawCategory = asString(item.category) || tags[0] || ''
       const rawSubCategory = asString(item.sub_category)
       if (isBlockedPromptItem(rawCategory, rawSubCategory, tags)) return null
       const sourceId = asString(item.sourceId) || asString(item.id) || stableId(source, `${title}-${normalizedPrompt}-${index}`)

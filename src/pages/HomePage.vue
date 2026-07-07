@@ -7,6 +7,7 @@ import type { ToolEntry } from '@/data/catalog'
 import { resolveToolIcon } from '@/domain/icons'
 import { useAppStore } from '@/stores/app'
 import { pickDirectory } from '@/services/desktop'
+import EmptyState from '@/components/EmptyState.vue'
 import type { ExportFormat, GeneratedAsset, GenerationMode, GenerationTask, ModelProfile } from '@/types/domain'
 
 const router = useRouter()
@@ -282,10 +283,12 @@ async function chooseRecentExportDir(): Promise<void> {
           <strong>{{ task.prompt }}</strong>
         </button>
       </div>
-      <div v-else class="empty-line card">
-        <Sparkles :size="18" />
-        <span>还没有生成记录，进入工作台创建第一张图。</span>
-      </div>
+      <EmptyState
+        v-else
+        :icon="Sparkles"
+        title="还没有生成记录"
+        description="进入工作台创建第一张图。"
+      />
     </section>
 
     <div v-if="selectedRecent" class="modal-overlay" @click.self="selectedRecent = null">
@@ -739,8 +742,7 @@ async function chooseRecentExportDir(): Promise<void> {
   text-overflow: ellipsis;
 }
 
-.privacy-card,
-.empty-line {
+.privacy-card {
   display: flex;
   align-items: center;
   gap: 12px;

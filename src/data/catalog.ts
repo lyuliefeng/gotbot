@@ -1304,8 +1304,7 @@ export const iconSizePresets = [
   { id: 'icon-48', name: '48 x 48', width: 48, height: 48, hint: '桌面快捷方式' },
   { id: 'icon-64', name: '64 x 64', width: 64, height: 64, hint: '应用图标' },
   { id: 'icon-128', name: '128 x 128', width: 128, height: 128, hint: '高清预览' },
-  { id: 'icon-256', name: '256 x 256', width: 256, height: 256, hint: '商店上传' },
-  { id: 'icon-512', name: '512 x 512', width: 512, height: 512, hint: '主视觉源图' },
+  { id: 'icon-256', name: '256 x 256', width: 256, height: 256, hint: '商店上传（ICO 最大尺寸）' },
 ] as const
 
 export function getAvailableIcoExportSizes(maxSide?: number): Array<(typeof iconSizePresets)[number]> {

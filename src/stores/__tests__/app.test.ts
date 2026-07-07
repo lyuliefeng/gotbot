@@ -43,23 +43,31 @@ describe('app store generation bridge', () => {
     expect(store.settings.defaultOutputDir.toLowerCase()).not.toContain('samimage')
   })
 
-  it('starts with a local admin account workspace', () => {
+  it('starts without a default account and makes the first registration an admin', () => {
     const store = useAppStore()
 
-    expect(store.accounts).toHaveLength(1)
-    expect(store.currentAccount?.username).toBe('admin')
-    expect(store.currentAccount?.role).toBe('admin')
-    expect(store.activeAccounts).toHaveLength(1)
+    expect(store.accounts).toHaveLength(0)
+    expect(store.currentAccount).toBeUndefined()
+    expect(store.activeAccounts).toHaveLength(0)
     expect(store.isAuthenticated).toBe(false)
+
+    const first = store.createAccount({ username: 'owner', displayName: '拥有者', accessKey: 'owner123' })
+    expect(first).not.toBeNull()
+    expect(store.currentAccount?.role).toBe('admin')
+    store.logout()
   })
 
   it('logs in and out with a local access key', () => {
     const store = useAppStore()
 
-    expect(store.loginAccount('account-admin', 'wrong-key')).toBe(false)
+    const account = store.createAccount({ username: 'login-user', accessKey: 'login123' })
+    expect(account).not.toBeNull()
+    if (!account) throw new Error('account should be created')
+
+    expect(store.loginAccount(account.id, 'wrong-key')).toBe(false)
     expect(store.isAuthenticated).toBe(false)
 
-    expect(store.loginAccount('account-admin', 'admin123')).toBe(true)
+    expect(store.loginAccount(account.id, 'login123')).toBe(true)
     expect(store.isAuthenticated).toBe(true)
 
     store.logout()
@@ -102,6 +110,10 @@ describe('app store generation bridge', () => {
 
   it('isolates model configuration between frontend accounts', () => {
     const store = useAppStore()
+    const owner = store.createAccount({ username: 'owner-a', displayName: '管理员 A', accessKey: 'owner123' })
+    expect(owner).not.toBeNull()
+    if (!owner) throw new Error('owner account should be created')
+    store.loginAccount(owner.id, 'owner123')
 
     store.saveModel({
       id: 'admin-image',
@@ -137,7 +149,7 @@ describe('app store generation bridge', () => {
       status: 'connected',
     })
 
-    store.switchAccount('account-admin')
+    store.switchAccount(owner.id)
     expect(store.models.some((model) => model.id === 'admin-image')).toBe(true)
     expect(store.models.some((model) => model.id === 'operator-image')).toBe(false)
 
