@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAppStore } from '../app'
+import { useAppStore, _trimAssetDataUrlsForTest } from '../app'
 import { invokeOptional, isElectronRuntime } from '@/services/desktop'
 
 vi.mock('@/services/desktop', () => ({
@@ -1023,7 +1023,9 @@ describe('app store generation bridge', () => {
     )
   })
 
-  it('does not write large generated image data URLs into browser local storage', () => {
+  it('keeps large generated image data URLs in memory even when browser storage rejects them', () => {
+    // 修复:之前会清空大图的 dataUrl 才能写盘,导致刷新后图片丢失。现在 dataUrl 始终保留在内存,
+    // 仅当写入超额时才按时间倒序 trim(此 mock 不触发 trim 成功路径,故最终 localStorage 写失败但内存完整)。
     const store = useAppStore()
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     setItem.mockImplementation((key: string, value: string) => {
@@ -1035,6 +1037,7 @@ describe('app store generation bridge', () => {
       }
     })
 
+    const largeDataUrl = `data:image/png;base64,${'large-image-payload'.repeat(512)}`
     expect(() => store.recordGenerationTask({
       id: 'task-large-local-storage',
       mode: 'txt2img',
@@ -1055,14 +1058,16 @@ describe('app store generation bridge', () => {
         width: 2048,
         height: 2048,
         format: 'png',
-        dataUrl: `data:image/png;base64,${'large-image-payload'.repeat(512)}`,
-        createdAt: '2026-05-31T00:00:00.000Z',
+        dataUrl: largeDataUrl,
+        createdAt: '2026-05-31T00:00:01.000Z',
       }],
-      createdAt: '2026-05-31T00:00:00.000Z',
+      createdAt: '2026-05-31T00:00:01.000Z',
     })).not.toThrow()
 
-    const browserState = JSON.parse(localStorage.getItem('samimage.v3.state') ?? '{}')
-    expect(browserState.tasks[0].assets[0].dataUrl).toBe('')
+    // 内存里 dataUrl 必须完整保留 —— 这是修复后的关键不变式。
+    expect(store.tasks[0].assets[0].dataUrl).toBe(largeDataUrl)
+
+    // Electron 通道不受 localStorage quota 影响,dataUrl 必须完整传给 save_app_state。
     expect(mockedInvokeOptional).toHaveBeenCalledWith(
       'save_app_state',
       expect.objectContaining({
@@ -1166,10 +1171,17 @@ describe('app store generation bridge', () => {
     })).not.toThrow()
 
     const browserState = localStorage.getItem('samimage.v3.state') ?? ''
-    expect(browserState).not.toContain('legacy-large-payload')
-    expect(JSON.parse(browserState).tasks.every((task: { assets: Array<{ dataUrl: string }> }) => (
-      task.assets.every((asset) => asset.dataUrl === '')
-    ))).toBe(true)
+    // 写入超限后,store 会先清掉旧 key 再写(legacy 的 dataUrl 因 compactBrowserState 保留原样),
+    // 新 task 的 dataUrl 必须完整保留 —— 修复了原版"全部清空 dataUrl"导致刷新后图片丢失的 bug。
+    const parsed = JSON.parse(browserState) as {
+      tasks: Array<{ id: string; assets: Array<{ id: string; dataUrl: string }> }>
+    }
+    const newTask = parsed.tasks.find((task) => task.id === 'task-after-legacy-quota')
+    expect(newTask).toBeDefined()
+    expect(newTask?.assets[0].dataUrl).toBe('data:image/png;base64,new-image')
+    // legacy 大图 dataUrl 通过 compactBrowserState 保留下来,刷新后仍可显示。
+    const legacyTask = parsed.tasks.find((task) => task.id === 'legacy-large-task')
+    expect(legacyTask?.assets[0].dataUrl).toContain('legacy-large-payload')
 
     setItem.mockRestore()
   })
@@ -2129,5 +2141,44 @@ describe('app store generation bridge', () => {
         apiKey: 'sk-image',
       }),
     })
+  })
+})
+
+describe('app store browser persistence', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    // The store calls `invokeOptional('save_app_state', ...)`. After other
+    // suites reset the mock, its return value is `undefined`; the production
+    // code chains `.catch(...)` on it, so we must always return a Promise.
+    mockedInvokeOptional.mockReset()
+    mockedInvokeOptional.mockResolvedValue(null)
+    mockedIsElectronRuntime.mockReset()
+    mockedIsElectronRuntime.mockReturnValue(false)
+  })
+
+  it('drops oldest dataUrls first when persist quota is exceeded', () => {
+    const state = {
+      models: [],
+      prompts: [],
+      tasks: [
+        { id: 't1', createdAt: '2024-01-01T00:00:00Z', assets: [
+          { id: 'a1', dataUrl: 'data:image/png;base64,OLD' },
+          { id: 'a2', dataUrl: 'data:image/png;base64,OLD' },
+        ] },
+        { id: 't2', createdAt: '2024-06-01T00:00:00Z', assets: [
+          { id: 'a3', dataUrl: 'data:image/png;base64,NEW' },
+        ] },
+      ],
+      coverPresets: [],
+      settings: {} as never,
+    }
+    const trimmed = _trimAssetDataUrlsForTest(state as never, 1)
+    const flat = trimmed.tasks.flatMap((t) => t.assets.map((a) => `${t.id}/${a.id}=${a.dataUrl}`))
+    expect(flat).toEqual([
+      't1/a1=',
+      't1/a2=',
+      't2/a3=data:image/png;base64,NEW',
+    ])
   })
 })

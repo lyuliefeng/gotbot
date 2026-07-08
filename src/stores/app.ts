@@ -636,17 +636,47 @@ function normalizeDefaultOutputDir(value: unknown): string {
   return value.replace(/samimage/gi, 'gotbot')
 }
 
+// 浏览器侧 localStorage 持久化前的预处理。
+// 注意:之前会把 task.assets[*].dataUrl 清空以节省配额,导致刷新页面后
+// 资产库/首页/工作台里的图片缩略图全部变 broken image。现在改为「按需降级」:
+// 默认保留所有 dataUrl(典型 base64 图片 100~300KB,localStorage 5MB 配额可放 15~30 张),
+// 当写入触发 QuotaExceededError 时,按生成时间倒序依次丢弃最早的 dataUrl 直至可写入。
 function compactBrowserState(state: PersistedState): PersistedState {
   return {
     ...state,
     tasks: (state.tasks ?? []).map((task) => ({
       ...task,
-      assets: task.assets.map((asset) => ({
-        ...asset,
-        dataUrl: '',
-      })),
+      assets: task.assets.map((asset) => ({ ...asset })),
     })),
   }
+}
+
+function trimAssetDataUrls(state: PersistedState, keep: number): PersistedState {
+  // 按 createdAt 倒序保留最新 keep 张图片的 dataUrl,其余清空
+  const flatAssets: { taskId: string; assetId: string; createdAt: number }[] = []
+  for (const task of state.tasks ?? []) {
+    const createdAt = Date.parse(task.createdAt ?? '') || 0
+    for (const asset of task.assets ?? []) {
+      flatAssets.push({ taskId: task.id, assetId: asset.id, createdAt })
+    }
+  }
+  flatAssets.sort((a, b) => b.createdAt - a.createdAt)
+  const dropped = new Set(flatAssets.slice(keep).map((item) => `${item.taskId}::${item.assetId}`))
+  return {
+    ...state,
+    tasks: (state.tasks ?? []).map((task) => ({
+      ...task,
+      assets: task.assets.map((asset) => (
+        dropped.has(`${task.id}::${asset.id}`) ? { ...asset, dataUrl: '' } : { ...asset }
+      )),
+    })),
+  }
+}
+
+// Test-only: keep the helper available for direct unit testing.
+// istanbul ignore next
+export function _trimAssetDataUrlsForTest(state: PersistedState, keep: number): PersistedState {
+  return trimAssetDataUrls(state, keep)
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -864,19 +894,46 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function persistBrowserState(snapshot: PersistedState): void {
-    try {
-      browserStorage.write(accountStateKey(currentAccountId.value), snapshot)
-      browserStorage.write(STORAGE_KEY, snapshot)
-    } catch (error) {
-      console.warn('Failed to persist compact app state to browser storage; retrying after clearing legacy state', error)
+    const write = (state: PersistedState) => {
+      browserStorage.write(accountStateKey(currentAccountId.value), state)
+      browserStorage.write(STORAGE_KEY, state)
+    }
+    const tryWriteWithLegacyCleared = (state: PersistedState): boolean => {
+      // 兼容旧版 samimage 状态:把 STORAGE_KEY 与账号 key 一并清空,再写。
       try {
         localStorage.removeItem(STORAGE_KEY)
         localStorage.removeItem(accountStateKey(currentAccountId.value))
-        browserStorage.write(accountStateKey(currentAccountId.value), snapshot)
-        browserStorage.write(STORAGE_KEY, snapshot)
-      } catch (retryError) {
-        console.warn('Failed to persist compact app state to browser storage after clearing legacy state', retryError)
+        write(state)
+        return true
+      } catch (error) {
+        console.warn('Failed to persist compact app state to browser storage after clearing legacy state', error)
+        return false
       }
+    }
+    try {
+      write(snapshot)
+    } catch (error) {
+      const isQuota = error instanceof DOMException && (error.name === 'QuotaExceededError' || error.code === 22)
+      if (isQuota) {
+        // localStorage 配额超限:先尝试清掉旧 key 再写(旧版行为,大多数情况可成功);
+        // 若仍超限,按生成时间倒序逐步丢弃最早图片的 dataUrl,直至可写入。
+        if (tryWriteWithLegacyCleared(snapshot)) return
+        let attempt = snapshot
+        const totalAssets = (attempt.tasks ?? []).reduce((sum, task) => sum + (task.assets?.length ?? 0), 0)
+        for (let keep = totalAssets - 1; keep >= 1; keep -= 1) {
+          attempt = trimAssetDataUrls(attempt, keep)
+          try {
+            write(attempt)
+            console.warn(`Persisted app state after trimming to ${keep} most-recent dataUrl(s) to fit browser storage quota`)
+            return
+          } catch {
+            // 继续减少 keep
+          }
+        }
+        console.warn('Failed to persist app state; dataUrls will be lost on next reload', error)
+        return
+      }
+      if (tryWriteWithLegacyCleared(snapshot)) return
     }
   }
 
