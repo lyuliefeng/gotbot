@@ -1,7 +1,21 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron')
 const fs = require('node:fs/promises')
 const path = require('node:path')
+const os = require('node:os')
 const crypto = require('node:crypto')
+
+// 解析用户传入的导出目录:空 → 系统下载目录;`~`/`~/...` 展开为用户主目录;否则原样返回。
+function resolveExportOutputDir(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return app.getPath('downloads')
+  }
+  const trimmed = raw.trim()
+  if (trimmed === '~' || trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(os.homedir(), trimmed.slice(1))
+  }
+  return trimmed
+}
+
 
 const isDev = process.env.ELECTRON_DEV === '1'
 const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:3030'
@@ -513,15 +527,15 @@ async function testModelProfile(profile) {
 }
 
 async function exportGeneratedAsset(request) {
-  if (!request.outputDir?.trim()) throw new Error('请设置导出目录')
-  await fs.mkdir(request.outputDir, { recursive: true })
+  const outputDir = resolveExportOutputDir(request.outputDir)
+  await fs.mkdir(outputDir, { recursive: true })
   const extension = sanitizeExtension(request.format || 'png')
-  const filePath = path.join(request.outputDir, `${sanitizeFileName(request.title || 'asset')}.${extension}`)
+  const filePath = path.join(outputDir, `${sanitizeFileName(request.title || 'asset')}.${extension}`)
   const buffer = await resolveExportBuffer(request)
   await fs.writeFile(filePath, buffer)
   let metadataPath
   if (request.metadataJson) {
-    metadataPath = path.join(request.outputDir, `${sanitizeFileName(request.title || 'asset')}.metadata.json`)
+    metadataPath = path.join(outputDir, `${sanitizeFileName(request.title || 'asset')}.metadata.json`)
     await fs.writeFile(metadataPath, request.metadataJson)
   }
   return { path: filePath, metadataPath }
@@ -545,11 +559,11 @@ async function resolveExportBuffer(request) {
 }
 
 async function exportIconBundle(request) {
-  if (!request.outputDir?.trim()) throw new Error('请设置导出目录')
   if (!request.entries?.length) throw new Error('没有可导出的图标文件')
-  await fs.mkdir(request.outputDir, { recursive: true })
+  const outputDir = resolveExportOutputDir(request.outputDir)
+  await fs.mkdir(outputDir, { recursive: true })
   const files = request.entries.map((entry) => ({ name: entry.name, data: dataUrlToBuffer(entry.dataUrl) }))
-  const zipPath = path.join(request.outputDir, `${sanitizeFileName(request.bundleName || 'icons')}.zip`)
+  const zipPath = path.join(outputDir, `${sanitizeFileName(request.bundleName || 'icons')}.zip`)
   await fs.writeFile(zipPath, buildZipStored(files))
   return zipPath
 }

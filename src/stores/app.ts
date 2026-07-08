@@ -430,7 +430,9 @@ const defaultState: PersistedState = {
   tasks: [],
   coverPresets: defaultCoverPresets,
   settings: {
-    defaultOutputDir: typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent) ? 'D:\\gotbot\\exports' : '~/gotbot/exports',
+    // 空字符串表示「跟随系统下载目录」(由 Electron 主进程解析为 `app.getPath('downloads')`)。
+    // 保留 `~` 写法作为兼容性 fallback,主进程会用 os.homedir() 展开。
+    defaultOutputDir: '',
     defaultExportFormat: 'svg',
     defaultImageModelId: '',
     defaultGenerationSize: 1024,

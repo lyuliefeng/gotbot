@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Download, FileText, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-vue-next'
+import { Download, FileText, FolderOpen, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 import { exportFormatOptions, stylePresets } from '@/data/catalog'
 import { useAppStore, type ModelRouteGroup } from '@/stores/app'
 import type { ModelCatalogItem, ModelProfile, PromptItem } from '@/types/domain'
 import { createId } from '@/domain/ids'
+import { pickDirectory } from '@/services/desktop'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -869,6 +870,23 @@ function logoutAccount(): void {
   void router.replace('/login')
 }
 
+const defaultOutputDirLabel = computed(() => {
+  const dir = store.settings.defaultOutputDir?.trim()
+  return dir || t('settings.exportDirFollowSystem')
+})
+
+async function chooseExportDirectory(): Promise<void> {
+  const directory = await pickDirectory(store.settings.defaultOutputDir)
+  if (!directory) return
+  store.saveSettings({ defaultOutputDir: directory })
+  store.notify(t('settings.notifyExportDirSelected', { dir: directory }))
+}
+
+function resetExportDirectory(): void {
+  store.saveSettings({ defaultOutputDir: '' })
+  store.notify(t('settings.notifyExportDirReset'))
+}
+
 function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatusTone } {
   if (!model.endpoint.trim() || !model.apiKey.trim() || (model.apiProtocol === 'mgtv-storyboard' && !model.apiSecret?.trim()) || !model.model.trim()) return { label: t('settings.status.unconfigured'), tone: 'warn' }
   if (model.status === 'connected') return { label: t('settings.status.connected'), tone: 'ok' }
@@ -1200,6 +1218,30 @@ function modelStatusMeta(model: ModelProfile): { label: string; tone: ModelStatu
             <select id="default-export-format" v-model="store.settings.defaultExportFormat">
               <option v-for="option in exportFormatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
+          </div>
+          <div class="field">
+            <label for="default-export-dir">{{ t('settings.defaultExportDir') }}</label>
+            <div class="directory-picker" :class="{ 'has-reset': !!store.settings.defaultOutputDir?.trim() }">
+              <input
+                id="default-export-dir"
+                readonly
+                :value="defaultOutputDirLabel"
+                :aria-label="t('settings.defaultExportDir')"
+              />
+              <button class="btn-soft" type="button" @click="chooseExportDirectory">
+                <FolderOpen :size="16" />
+                {{ t('settings.chooseExportDir') }}
+              </button>
+              <button
+                v-if="store.settings.defaultOutputDir?.trim()"
+                class="btn-soft btn-sm"
+                type="button"
+                @click="resetExportDirectory"
+              >
+                {{ t('settings.exportDirUseSystem') }}
+              </button>
+            </div>
+            <p class="field-note">{{ t('settings.exportDirHint') }}</p>
           </div>
           <div class="btn-row">
             <button class="btn-primary" type="button" @click="store.saveSettings(store.settings)">{{ t('settings.saveSystem') }}</button>

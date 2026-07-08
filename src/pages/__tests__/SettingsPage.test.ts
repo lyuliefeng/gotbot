@@ -208,15 +208,28 @@ describe('SettingsPage model editor layout', () => {
     expect(sourceOnly).not.toContain('grid-template-columns: minmax(210px, 1.25fr) minmax(240px, 1fr);')
   })
 
-  it('hides local output directory controls from system settings', () => {
+  it('still wires the system settings card with default format, logout and reset actions', () => {
     expect(source).toContain('settings.defaultExportFormat')
     expect(source).toContain('function logoutAccount')
     expect(source).toContain('store.logout()')
     expect(source).toContain("router.replace('/login')")
     expect(source).toContain('settings.logout')
+  })
+
+  it('exposes a safe, read-only default export directory control with picker and reset', () => {
+    // The directory field is read-only; editing the value directly is no longer possible
+    // (previously it was an editable input bound with v-model).
+    expect(source).toContain('id="default-export-dir"')
+    expect(source).toContain('readonly')
+    expect(source).toContain('function chooseExportDirectory')
+    expect(source).toContain('function resetExportDirectory')
+    expect(source).toContain('settings.defaultExportDir')
+    expect(source).toContain('settings.chooseExportDir')
+    expect(source).toContain('settings.exportDirFollowSystem')
+    // 中文「默认导出目录」字面量只应出现在 zh-CN 目录中,不再直接写在 .vue 源码里
     expect(sourceOnly).not.toContain('默认输出目录')
+    // 旧式可直接编辑 + `chooseDefaultOutputDir` API 已删除
     expect(sourceOnly).not.toContain('id="default-output-dir"')
     expect(sourceOnly).not.toContain('chooseDefaultOutputDir')
-    expect(sourceOnly).not.toContain('pickDirectory')
   })
 })

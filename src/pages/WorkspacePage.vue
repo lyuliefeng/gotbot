@@ -95,6 +95,46 @@ const resizeModeOptions = ['just-resize', 'crop-resize', 'resize-fill'] as const
 const iconBackgroundOptions = ['transparent', 'rounded', 'solid'] as const
 const generateDebounceMs = 900
 let generateCooldownTimer: number | undefined
+// 假进度条（生成流程在浏览器侧无分阶段回调，用时间匀速模拟 0→100%）
+const generationProgress = ref(0)
+let progressTimer: number | undefined
+const progressTickMs = 80
+const progressStepEarly = 1.6 // 起步阶段每 tick 推进
+const progressStepLate = 0.45 // 95% 后减速,模拟「在等响应」
+const progressStepCap = 95
+let progressStepCurrent = progressStepEarly
+
+function startGenerationProgress(): void {
+  stopGenerationProgress()
+  generationProgress.value = 0
+  progressStepCurrent = progressStepEarly
+  progressTimer = window.setInterval(() => {
+    if (generationProgress.value >= 100) {
+      stopGenerationProgress()
+      return
+    }
+    if (generationProgress.value >= progressStepCap) {
+      progressStepCurrent = progressStepLate
+    }
+    generationProgress.value = Math.min(100, +(generationProgress.value + progressStepCurrent).toFixed(2))
+  }, progressTickMs)
+}
+
+function stopGenerationProgress(): void {
+  if (progressTimer) {
+    window.clearInterval(progressTimer)
+    progressTimer = undefined
+  }
+}
+
+function completeGenerationProgress(): void {
+  // 任务真实完成,把进度推到 100% 后再清掉计时器,让 UI 短暂看到满条
+  stopGenerationProgress()
+  generationProgress.value = 100
+  window.setTimeout(() => {
+    generationProgress.value = 0
+  }, 400)
+}
 type RouteModeOptions = Record<string, string | number | boolean>
 type SizePreset = {
   id: string
@@ -203,7 +243,7 @@ const videoDurationFrames = computed(() => Math.max(9, Math.round(videoDuration.
 const videoNumFrames = computed(() => (videoFrameMode.value === 'eight-n-plus-one' ? videoFrameN.value * 8 + 1 : videoDurationFrames.value))
 const videoEstimatedSeconds = computed(() => (videoNumFrames.value / Math.max(1, videoFrameRate.value)).toFixed(1).replace(/\.0$/, ''))
 const referenceSummary = computed(() => (referenceImage.value ? '已载入参考图' : referenceRequired.value ? '必须上传' : '可选'))
-const previewSummary = computed(() => (generationError.value ? '失败' : resultCount.value ? `${resultCount.value} 个结果` : generating.value ? '生成中' : '待生成'))
+const previewSummary = computed(() => (generationError.value ? '失败' : resultCount.value ? `${resultCount.value} 个结果` : generating.value ? `生成中 ${Math.round(generationProgress.value)}%` : '待生成'))
 const generationParamsSummary = computed(() => selectedModel.value?.name ?? '未选择模型')
 const outputSizeSummary = computed(() => `${width.value} × ${height.value}`)
 const generationControlSummary = computed(() => `${batchSize.value} 张 · ${steps.value} 步`)
@@ -453,6 +493,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleShortcut)
   window.removeEventListener('paste', handlePaste)
   if (generateCooldownTimer) window.clearTimeout(generateCooldownTimer)
+  stopGenerationProgress()
 })
 
 function applyModeDefaults(next: GenerationMode, useDefaultSize = true): void {
@@ -755,6 +796,7 @@ async function generate(): Promise<void> {
     return
   }
   generating.value = true
+  startGenerationProgress()
   generationError.value = ''
   currentTask.value = null
   selectedAsset.value = null
@@ -841,10 +883,13 @@ async function generate(): Promise<void> {
       }
     }
   } catch (error) {
+    stopGenerationProgress()
+    generationProgress.value = 0
     generationError.value = error instanceof Error ? error.message : '生成失败'
   } finally {
     window.setTimeout(() => {
       generating.value = false
+      completeGenerationProgress()
     }, 650)
   }
 }
@@ -1177,7 +1222,18 @@ async function chooseWorkspaceExportDir(): Promise<void> {
                       <strong>{{ isVideoMode ? 'VIDEO' : 'IMAGE' }}</strong>
                     </div>
                   </div>
-                  <strong>正在调用生成流程...</strong>
+                  <strong>正在调用生成流程…</strong>
+                  <div
+                    class="progress-track"
+                    role="progressbar"
+                    :aria-valuenow="Math.round(generationProgress)"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    :aria-label="`生成进度 ${Math.round(generationProgress)}%`"
+                  >
+                    <div class="progress-bar" :style="{ width: `${generationProgress}%` }" />
+                  </div>
+                  <span class="progress-percent">{{ Math.round(generationProgress) }}%</span>
                   <p class="muted">校验提示词、组合参数并写入资产库</p>
                 </div>
                 <div v-else-if="currentAssets.length" class="samples">
@@ -1703,13 +1759,27 @@ async function chooseWorkspaceExportDir(): Promise<void> {
         <div class="modal-body stack">
           <div class="field">
             <label for="workspace-export-dir">导出目录</label>
-            <div class="directory-picker">
-              <input id="workspace-export-dir" v-model="store.settings.defaultOutputDir" />
+            <div class="directory-picker" :class="{ 'has-reset': !!store.settings.defaultOutputDir?.trim() }">
+              <input
+                id="workspace-export-dir"
+                readonly
+                :value="store.settings.defaultOutputDir?.trim() || '跟随系统下载目录'"
+                :aria-label="'导出目录'"
+              />
               <button class="btn-soft" type="button" @click="chooseWorkspaceExportDir">
                 <FolderOpen :size="16" />
                 重新选择目录
               </button>
+              <button
+                v-if="store.settings.defaultOutputDir?.trim()"
+                class="btn-soft btn-sm"
+                type="button"
+                @click="store.saveSettings({ defaultOutputDir: '' })"
+              >
+                跟随系统下载目录
+              </button>
             </div>
+            <p class="field-note">桌面版(打包安装)会把结果写入该目录,留空则使用系统的下载目录。Web 预览则直接走浏览器下载。</p>
           </div>
           <div class="field">
             <label for="workspace-export-format">格式</label>
@@ -2731,6 +2801,35 @@ async function chooseWorkspaceExportDir(): Promise<void> {
   gap: 12px;
   text-align: center;
   color: var(--fg-2);
+}
+
+.generating .progress-track {
+  width: min(360px, 80%);
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.generating .progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2, var(--accent)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: width 100ms linear;
+  will-change: width;
+}
+
+.generating .progress-percent {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  min-width: 44px;
+  text-align: center;
 }
 
 .error-stage {

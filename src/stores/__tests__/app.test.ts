@@ -36,10 +36,9 @@ describe('app store generation bridge', () => {
     expect(store.videoModels).toEqual([])
   })
 
-  it('uses a gotbot default output directory internally', () => {
+  it('does not keep any legacy samimage output directory', () => {
     const store = useAppStore()
 
-    expect(store.settings.defaultOutputDir.toLowerCase()).toContain('gotbot')
     expect(store.settings.defaultOutputDir.toLowerCase()).not.toContain('samimage')
   })
 
